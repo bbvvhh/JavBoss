@@ -1,0 +1,133 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --topbar-height: 96px;
+}
+
+html {
+  height: 100%;
+  /* 阻止 iOS 横屏时自动放大字号 */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100%;
+  background: #eff1f4;
+  color: #18181b;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC',
+    'Microsoft YaHei', system-ui, sans-serif;
+  /* 避免整页橡皮筋，滚动交给内容区 */
+  overscroll-behavior-y: none;
+}
+
+#root {
+  min-height: 100%;
+}
+
+/* 点击时不显示高亮块，改为自绘反馈 */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* 横向滚动的 chips 行不显示滚动条 */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* 大图模式的演员 / 标签单行裁剪：右侧淡出，暗示还有内容 */
+.fade-clip {
+  -webkit-mask-image: linear-gradient(to right, #000 84%, transparent);
+  mask-image: linear-gradient(to right, #000 84%, transparent);
+}
+
+/* 底部抽屉滑入 */
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+.sheet-in {
+  animation: sheet-in 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.scrim-in {
+  animation: scrim-in 0.18s ease-out;
+}
+
+/* 骨架屏 */
+@keyframes skeleton {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+.skeleton {
+  background: linear-gradient(90deg, #edeef1 25%, #f6f7f9 37%, #edeef1 63%);
+  background-size: 300% 100%;
+  animation: skeleton 1.4s ease-in-out infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-in,
+  .scrim-in,
+  .skeleton,
+  .spin {
+    animation: none;
+  }
+}
+
+/* video.js 在移动端占满舞台 */
+.stage .video-js {
+  width: 100%;
+  height: 100%;
+  background: #000;
+}
+.stage .video-js .vjs-big-play-button {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  width: 3.4em;
+  height: 3.4em;
+  line-height: 3.4em;
+  margin: 0;
+  border: 0;
+  background: rgba(0, 0, 0, 0.55);
+}

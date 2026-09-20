@@ -33,6 +33,7 @@ function entryDirFromArgv() {
 
 const ROOT_DIR = findRepoRoot(entryDirFromArgv());
 const WEB_DIR = path.join(ROOT_DIR, "web");
+const MOBILE_WEB_DIR = path.join(ROOT_DIR, "web-mobile");
 const INTERNAL_BIN_DIR = path.join(ROOT_DIR, "internal", "bin");
 const BIN_DIR = path.join(ROOT_DIR, "bin");
 
@@ -266,9 +267,22 @@ async function isBundledMpvReady(choice) {
   return true;
 }
 
+// Windows 上有两层坑：
+//   1. Node 不做 PATHEXT 解析（CreateProcess 只自动补 .exe），spawn("npm") 直接 ENOENT；
+//   2. 自 Node 18.20 / 20.12 起（CVE-2024-27980 的修复），直接 spawn .cmd/.bat 会抛 EINVAL。
+// 所以 npm 这类 shim 在 Windows 上必须交给 shell 去解析。
+const WINDOWS_SHIM_COMMANDS = new Set(["npm", "npx", "pnpm", "yarn", "corepack"]);
+
+function applyWindowsShimShell(cmd, options) {
+  if (process.platform !== "win32") return options;
+  if (!WINDOWS_SHIM_COMMANDS.has(cmd)) return options;
+  return { ...options, shell: true };
+}
+
 function runCommand(cmd, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: "inherit", ...options });
+    const spawnOptions = applyWindowsShimShell(cmd, { stdio: "inherit", ...options });
+    const child = spawn(cmd, args, spawnOptions);
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) {
@@ -282,7 +296,11 @@ function runCommand(cmd, args, options = {}) {
 
 function runCommandCapture(cmd, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], ...options });
+    const spawnOptions = applyWindowsShimShell(cmd, {
+      stdio: ["ignore", "pipe", "pipe"],
+      ...options,
+    });
+    const child = spawn(cmd, args, spawnOptions);
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk) => {
@@ -333,6 +351,12 @@ async function runFrontendDev() {
   await ensureNpmDeps(WEB_DIR);
   console.log("[dev] 启动前端开发服务器");
   await runCommand("npm", ["run", "dev"], { cwd: WEB_DIR });
+}
+
+async function runMobileDev() {
+  await ensureNpmDeps(MOBILE_WEB_DIR);
+  console.log("[dev] 启动移动端开发服务器：http://localhost:5174/m/");
+  await runCommand("npm", ["run", "dev"], { cwd: MOBILE_WEB_DIR });
 }
 
 function waitForExit(child, label) {
@@ -1378,6 +1402,10 @@ async function handleDev(mode) {
     await runFrontendDev();
     return;
   }
+  if (mode === "mobile") {
+    await runMobileDev();
+    return;
+  }
   if (mode === "backend") {
     await runBackendDev();
     return;
@@ -1393,6 +1421,17 @@ async function handleDev(mode) {
     }
     return;
   }
+  if (mode === "mobile-both") {
+    const child = await startBackendDevChild();
+    if (!child) return;
+    try {
+      await runMobileDev();
+    } finally {
+      child.kill("SIGTERM");
+      await waitForExit(child, "backend").catch(() => {});
+    }
+    return;
+  }
 
   const { devTarget } = await inquirer.prompt([
     {
@@ -1400,8 +1439,11 @@ async function handleDev(mode) {
       name: "devTarget",
       message: "选择开发模式",
       choices: [
-        { name: "frontend", value: "frontend" },
+        { name: "frontend (PC 端，5173)", value: "frontend" },
+        { name: "mobile (移动端，5174/m/)", value: "mobile" },
         { name: "backend", value: "backend" },
+        { name: "both (后端 + PC 端)", value: "both" },
+        { name: "mobile-both (后端 + 移动端)", value: "mobile-both" },
       ],
     },
   ]);
