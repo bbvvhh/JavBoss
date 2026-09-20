@@ -10,6 +10,7 @@ import (
 
 	"javboss/internal/common"
 	"javboss/internal/models"
+	"javboss/internal/storage"
 
 	"gorm.io/gorm"
 )
@@ -83,15 +84,76 @@ func GetDirectory(ctx context.Context, id int64) (*models.Directory, error) {
 	return &dir, nil
 }
 
-// CreateDirectory registers a new directory.
-func CreateDirectory(ctx context.Context, path string) (*models.Directory, error) {
-	normalized, err := normalizeDirectoryPath(path)
+// DirectorySource describes where a directory reads its files from.
+//
+// For local directories Path is an absolute filesystem path. For remote
+// directories Path is the collection path below the connection endpoint.
+type DirectorySource struct {
+	Kind         string
+	Path         string
+	ConnectionID *int64
+}
+
+// ResolveDirectorySource validates a source and returns the directory columns to
+// persist. Remote sources must reference an existing storage connection. This
+// function only reads the database; reachability is checked by the caller.
+func ResolveDirectorySource(ctx context.Context, source DirectorySource) (*models.Directory, error) {
+	switch storage.NormalizeKind(source.Kind) {
+	case storage.KindWebDAV:
+		if source.ConnectionID == nil || *source.ConnectionID <= 0 {
+			return nil, errors.New("a remote directory requires a storage connection")
+		}
+		// Guard against a client sending the synthetic identity Path
+		// ("webdav://<id>/x") back as the remote path. Persisting it would create
+		// a nonsense remote folder and hide every existing location on the next
+		// scan, so reject it outright.
+		if strings.Contains(source.Path, "://") {
+			return nil, errors.New("remote path must be a collection path, not a URL")
+		}
+		connection, err := GetStorageConnection(ctx, *source.ConnectionID)
+		if err != nil {
+			return nil, err
+		}
+		if connection == nil {
+			return nil, ErrStorageConnectionNotFound
+		}
+		remotePath := storage.NormalizeRemotePath(source.Path)
+		connectionID := *source.ConnectionID
+		return &models.Directory{
+			Path:         directoryRemoteIdentity(connectionID, remotePath),
+			Kind:         storage.KindWebDAV,
+			ConnectionID: &connectionID,
+			RemotePath:   remotePath,
+		}, nil
+	default:
+		normalized, err := normalizeDirectoryPath(source.Path)
+		if err != nil {
+			return nil, err
+		}
+		return &models.Directory{
+			Path:         normalized,
+			Kind:         storage.KindLocal,
+			ConnectionID: nil,
+			RemotePath:   "",
+		}, nil
+	}
+}
+
+// directoryRemoteIdentity is the unique Path stored for a remote directory.
+// The scheme keeps it distinct from any absolute local path.
+func directoryRemoteIdentity(connectionID int64, remotePath string) string {
+	return storage.RemoteIdentity(connectionID, remotePath)
+}
+
+// CreateDirectoryFromSource registers a new directory from a validated source.
+func CreateDirectoryFromSource(ctx context.Context, source DirectorySource) (*models.Directory, error) {
+	resolved, err := ResolveDirectorySource(ctx, source)
 	if err != nil {
 		return nil, err
 	}
 
 	var existing models.Directory
-	err = common.DB.WithContext(ctx).Where("path = ?", normalized).First(&existing).Error
+	err = common.DB.WithContext(ctx).Where("path = ?", resolved.Path).First(&existing).Error
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fmt.Errorf("create directory: %w", err)
 	}
@@ -99,70 +161,101 @@ func CreateDirectory(ctx context.Context, path string) (*models.Directory, error
 	// If directory exists but was soft-deleted, restore it instead of inserting a new row.
 	if err == nil {
 		if existing.IsDelete {
-			dir, updErr := updateDirectoryWithVisibility(ctx, existing.ID, func(tx *gorm.DB, dir *models.Directory) error {
-				dir.Path = normalized
+			return updateDirectoryWithVisibility(ctx, existing.ID, func(tx *gorm.DB, dir *models.Directory) error {
+				applyDirectorySource(dir, resolved)
 				dir.IsDelete = false
 				dir.Missing = false
 				dir.Enabled = true
 				return nil
 			})
-			if updErr != nil {
-				return nil, fmt.Errorf("restore directory: %w", updErr)
-			}
-			return dir, nil
 		}
-		return nil, fmt.Errorf("directory %q already exists", normalized)
+		return nil, fmt.Errorf("directory %q already exists", resolved.Path)
 	}
 
-	dir := models.Directory{
-		Path: normalized,
-	}
+	dir := *resolved
 	if err := common.DB.WithContext(ctx).Create(&dir).Error; err != nil {
 		return nil, fmt.Errorf("create directory: %w", err)
 	}
 	return &dir, nil
 }
 
-// UpdateDirectory updates a directory's attributes. Pass nil to leave a field untouched.
+// applyDirectorySource copies resolved storage columns onto a directory row.
+func applyDirectorySource(dir *models.Directory, resolved *models.Directory) {
+	dir.Path = resolved.Path
+	dir.Kind = resolved.Kind
+	dir.ConnectionID = resolved.ConnectionID
+	dir.RemotePath = resolved.RemotePath
+}
+
+// CreateDirectory registers a new local directory.
+func CreateDirectory(ctx context.Context, path string) (*models.Directory, error) {
+	return CreateDirectoryFromSource(ctx, DirectorySource{Kind: storage.KindLocal, Path: path})
+}
+
+// UpdateDirectory patches a local directory's path, deletion flag and enabled flag.
 func UpdateDirectory(ctx context.Context, id int64, path *string, isDelete *bool, enabled *bool) (*models.Directory, error) {
-	var normalizedPath *string
-	if path != nil {
-		normalized, err := normalizeDirectoryPath(*path)
+	if path == nil {
+		return UpdateDirectorySource(ctx, id, nil, isDelete, enabled)
+	}
+	source := DirectorySource{Kind: storage.KindLocal, Path: *path}
+	return UpdateDirectorySource(ctx, id, &source, isDelete, enabled)
+}
+
+// UpdateDirectorySource updates a directory. A nil source leaves storage columns
+// untouched.
+//
+// Switching the source never hides the directory's existing video locations:
+// the follow-up scan reconciles them, so a temporarily unreachable remote root
+// cannot blank out an already scraped library. This is what makes an in-place
+// local -> WebDAV switch seamless.
+func UpdateDirectorySource(
+	ctx context.Context,
+	id int64,
+	source *DirectorySource,
+	isDelete *bool,
+	enabled *bool,
+) (*models.Directory, error) {
+	var resolved *models.Directory
+	if source != nil {
+		var err error
+		resolved, err = ResolveDirectorySource(ctx, *source)
 		if err != nil {
 			return nil, err
 		}
-		normalizedPath = &normalized
 	}
 
 	return updateDirectoryWithVisibility(ctx, id, func(tx *gorm.DB, dir *models.Directory) error {
-		if normalizedPath != nil && dir.Path != *normalizedPath {
-			var other models.Directory
-			if err := tx.Where("path = ?", *normalizedPath).First(&other).Error; err != nil {
-				if !errors.Is(err, gorm.ErrRecordNotFound) {
-					return fmt.Errorf("lookup conflicting directory: %w", err)
-				}
-			} else if other.ID != dir.ID {
-				if other.IsDelete {
-					// Restore the soft-deleted record (other) and mark current dir as deleted instead.
-					if err := tx.Model(&models.Directory{}).
-						Where("id = ?", other.ID).
-						Updates(map[string]any{"is_delete": false, "missing": false}).Error; err != nil {
-						return fmt.Errorf("restore deleted directory: %w", err)
+		if resolved != nil {
+			sourceChanged := dir.Path != resolved.Path ||
+				dir.StorageKind() != resolved.Kind ||
+				dir.RemotePath != resolved.RemotePath ||
+				!sameConnectionID(dir.ConnectionID, resolved.ConnectionID)
+			if dir.Path != resolved.Path {
+				var other models.Directory
+				if err := tx.Where("path = ?", resolved.Path).First(&other).Error; err != nil {
+					if !errors.Is(err, gorm.ErrRecordNotFound) {
+						return fmt.Errorf("lookup conflicting directory: %w", err)
 					}
-					dir.IsDelete = true
-					// Keep dir.Path unchanged to avoid uniqueness conflict; caller attempted to reuse other's path.
-					normalizedPath = nil
-				} else {
-					return fmt.Errorf("directory %q already exists", *normalizedPath)
+				} else if other.ID != dir.ID {
+					if other.IsDelete {
+						// Restore the soft-deleted record (other) and mark current dir as deleted instead.
+						if err := tx.Model(&models.Directory{}).
+							Where("id = ?", other.ID).
+							Updates(map[string]any{"is_delete": false, "missing": false}).Error; err != nil {
+							return fmt.Errorf("restore deleted directory: %w", err)
+						}
+						dir.IsDelete = true
+						// Keep dir.Path unchanged to avoid uniqueness conflict; caller attempted to reuse other's path.
+						resolved.Path = dir.Path
+					} else {
+						return fmt.Errorf("directory %q already exists", resolved.Path)
+					}
 				}
 			}
-			if normalizedPath != nil {
-				dir.Path = *normalizedPath
-				if err := hideVideoLocationsByDirectoryID(tx, dir.ID); err != nil {
-					return err
-				}
+			applyDirectorySource(dir, resolved)
+			if sourceChanged {
+				dir.Missing = false
 			}
-			dir.Missing = false
 		}
 		if isDelete != nil {
 			dir.IsDelete = *isDelete
@@ -172,6 +265,13 @@ func UpdateDirectory(ctx context.Context, id int64, path *string, isDelete *bool
 		}
 		return nil
 	})
+}
+
+func sameConnectionID(left, right *int64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 // UpdateDirectoryScanSettings updates only automatic-scan fields. The targeted update is safe to
@@ -240,20 +340,6 @@ func UpdateDirectoryLastScanSummary(
 	}
 	if result.RowsAffected == 0 {
 		return errors.New("directory not found")
-	}
-	return nil
-}
-
-func hideVideoLocationsByDirectoryID(tx *gorm.DB, directoryID int64) error {
-	if directoryID <= 0 {
-		return errors.New("directory id cannot be zero")
-	}
-	if err := tx.
-		Model(&models.VideoLocation{}).
-		Where("directory_id = ?", directoryID).
-		Where("COALESCE(is_delete, 0) = 0").
-		Update("is_delete", true).Error; err != nil {
-		return fmt.Errorf("hide video locations for directory: %w", err)
 	}
 	return nil
 }

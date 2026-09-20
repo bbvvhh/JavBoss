@@ -156,7 +156,7 @@ func main() {
 	}
 
 	dataDir := filepath.Dir(cfg.DatabasePath)
-	screenshotManager := manager.NewScreenshotManager(dataDir, db.GetVideo)
+	screenshotManager := manager.NewScreenshotManager(dataDir, db.GetVideo, service.ResolveVideoMedia)
 	streamManager := manager.NewStreamManager(filepath.Join(dataDir, "cache", "streams"))
 	ffmpegToolManager := manager.NewFFmpegToolManager(ctx, baseDir)
 	coverManager := manager.NewCoverManager(cfg.JavCoverDir, []jav.Provider{

@@ -82,6 +82,7 @@ func isAPIPath(path string) bool {
 		"/extension",
 		"/healthz",
 		"/jav",
+		"/storage",
 		"/sync",
 		"/tags",
 		"/tools",

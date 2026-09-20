@@ -54,6 +54,13 @@ func RegisterRoutes(router gin.IRoutes) {
 	router.POST("/directories/:id/scan", scanDirectory)
 	router.PATCH("/directories/:id", updateDirectory)
 
+	router.GET("/storage/connections", listStorageConnections)
+	router.POST("/storage/connections", createStorageConnection)
+	router.PATCH("/storage/connections/:id", updateStorageConnection)
+	router.DELETE("/storage/connections/:id", deleteStorageConnection)
+	router.POST("/storage/connections/test", testStorageConnection)
+	router.GET("/storage/browse", browseStorageDirectories)
+
 	router.GET("/tags", listTags)
 	router.POST("/tags", createTag)
 	router.GET("/tags/categories", listTagCategories)

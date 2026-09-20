@@ -29,19 +29,33 @@ type Task struct {
 // VideoFetcher loads a video record by ID.
 type VideoFetcher func(ctx context.Context, id int64) (*models.Video, error)
 
+// ResolvedMedia describes how to read one video's bytes.
+type ResolvedMedia struct {
+	// Path is what ffprobe/ffmpeg/mpv should open: an absolute local path or a
+	// credentialed media URL. It may contain credentials and must never be logged raw.
+	Path string
+	// Remote marks a network source, which cannot be verified with os.Stat.
+	Remote bool
+}
+
+// MediaResolver resolves the readable source of a video. It is injected so this
+// package does not need to know about storage backends or database connections.
+type MediaResolver func(ctx context.Context, video *models.Video) (ResolvedMedia, error)
+
 const maxScreenshotWorkers = 8
 
 // ScreenshotManager coordinates asynchronous screenshot generation using the worker.
 type ScreenshotManager struct {
-	tasks      chan Task
-	workers    int
-	dataDir    string
-	fetchVideo VideoFetcher
+	tasks        chan Task
+	workers      int
+	dataDir      string
+	fetchVideo   VideoFetcher
+	resolveMedia MediaResolver
 }
 
 // NewScreenshotManager creates a manager when dataDir and fetchVideo are provided.
 // Returns nil when either is missing, effectively disabling screenshot generation.
-func NewScreenshotManager(dataDir string, fetchVideo VideoFetcher) *ScreenshotManager {
+func NewScreenshotManager(dataDir string, fetchVideo VideoFetcher, resolveMedia MediaResolver) *ScreenshotManager {
 	dataDir = strings.TrimSpace(dataDir)
 	if dataDir == "" || fetchVideo == nil {
 		return nil
@@ -55,10 +69,11 @@ func NewScreenshotManager(dataDir string, fetchVideo VideoFetcher) *ScreenshotMa
 	}
 	logging.Info("screenshot manager initialized with %d workers", workers)
 	return &ScreenshotManager{
-		tasks:      make(chan Task, 5000),
-		workers:    workers,
-		dataDir:    dataDir,
-		fetchVideo: fetchVideo,
+		tasks:        make(chan Task, 5000),
+		workers:      workers,
+		dataDir:      dataDir,
+		fetchVideo:   fetchVideo,
+		resolveMedia: resolveMedia,
 	}
 }
 
@@ -229,24 +244,44 @@ func (m *ScreenshotManager) processTask(parent context.Context, task Task) error
 		return nil
 	}
 
-	videoPath, err := resolveVideoPath(video)
+	media, err := m.resolveVideoMedia(parent, video)
 	if err != nil {
 		return err
+	}
+	if media.Path == "" {
+		return errors.New("video location missing")
 	}
 
-	info, err := os.Stat(videoPath)
-	if err != nil {
-		return err
-	}
-	if !sameVideoMeta(info.ModTime(), info.Size(), task) {
-		return nil
+	// Remote sources are validated by their own metadata at scan time; os.Stat
+	// cannot see them and an extra round trip per screenshot is wasteful.
+	if !media.Remote {
+		info, err := os.Stat(media.Path)
+		if err != nil {
+			return err
+		}
+		if !sameVideoMeta(info.ModTime(), info.Size(), task) {
+			return nil
+		}
 	}
 
 	// Bound mpv execution time to avoid stuck processes.
 	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 	defer cancel()
 
-	return m.capture(ctx, videoPath, float64(task.Second), screenshotPath)
+	return m.capture(ctx, media.Path, float64(task.Second), screenshotPath)
+}
+
+// resolveVideoMedia uses the injected resolver, falling back to the local
+// location join for managers created without one (tests).
+func (m *ScreenshotManager) resolveVideoMedia(ctx context.Context, video *models.Video) (ResolvedMedia, error) {
+	if m.resolveMedia != nil {
+		return m.resolveMedia(ctx, video)
+	}
+	path, err := resolveVideoPath(video)
+	if err != nil {
+		return ResolvedMedia{}, err
+	}
+	return ResolvedMedia{Path: path}, nil
 }
 
 func (m *ScreenshotManager) capture(ctx context.Context, videoPath string, second float64, outputPath string) error {

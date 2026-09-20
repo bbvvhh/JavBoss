@@ -1301,8 +1301,8 @@ export const useStore = create((set, get) => ({
     set({ javTempSort: '', javRandomMode: true, javRandomSeed: nextSeed, javPage: 1 })
   },
 
-  createDirectory: async ({ path }) => {
-    const dir = await createDirectory({ path })
+  createDirectory: async (payload) => {
+    const dir = await createDirectory(payload || {})
     const next = dir && !dir.is_delete ? [...get().directories, dir] : get().directories
     invalidateDirectoryScopedRequests()
     set({ directories: next, ...directoryScopeResetState() })

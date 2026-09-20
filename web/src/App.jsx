@@ -91,6 +91,7 @@ import VideoRoute from '@/routes/VideoRoute'
 import { zh } from '@/utils/i18n'
 import { getErrorMessage } from '@/utils/errors'
 import { buildVideoFullPath } from '@/utils/display'
+import { mediaRequestFields, isRemoteIdentity } from '@/utils/directorySource'
 import { getIdolDisplayName } from '@/utils/javIdol'
 import { withJavTagDisplayName } from '@/utils/javTag'
 import {
@@ -629,12 +630,12 @@ export default function App() {
         setPlayerVideo(video)
         return
       }
-      const payload = {
+      const payload = mediaRequestFields({
         id: video.id,
         locationId: video.location_id,
         path: getVideoRelPath(video),
         dirPath: getVideoDirPath(video),
-      }
+      })
       const useSystemPlayer = player === 'system'
       const action = useSystemPlayer ? openVideoFile : playVideoFile
       action(payload).catch((err) => {
@@ -654,12 +655,23 @@ export default function App() {
     (video) => {
       if (!ensureRevealAvailable()) return Promise.resolve()
       if (!video || !isVideoOpenable(video)) return Promise.resolve()
+      // A WebDAV directory has no local folder to reveal; answer locally instead
+      // of letting the server reject it.
+      if (isRemoteIdentity(getVideoDirPath(video))) {
+        showCenterToast(
+          zh(
+            'WebDAV 远程目录无法在文件管理器中显示位置',
+            'A WebDAV source has no local folder to show'
+          )
+        )
+        return Promise.resolve()
+      }
       return revealVideoLocation({
         path: getVideoRelPath(video),
         dirPath: getVideoDirPath(video),
       })
     },
-    [ensureRevealAvailable, getVideoDirPath, getVideoRelPath, isVideoOpenable]
+    [ensureRevealAvailable, getVideoDirPath, getVideoRelPath, isVideoOpenable, showCenterToast]
   )
 
   const playVideoFromTime = useCallback(
@@ -671,10 +683,12 @@ export default function App() {
         return
       }
       playVideoFile({
-        id: video.id,
-        locationId: video.location_id,
-        path: getVideoRelPath(video),
-        dirPath: getVideoDirPath(video),
+        ...mediaRequestFields({
+          id: video.id,
+          locationId: video.location_id,
+          path: getVideoRelPath(video),
+          dirPath: getVideoDirPath(video),
+        }),
         startTime,
       }).catch((err) => {
         console.error(zh('播放文件失败', 'Failed to play file'), err)

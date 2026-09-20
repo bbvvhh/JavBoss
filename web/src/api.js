@@ -472,11 +472,16 @@ export async function fetchDirectories() {
   return res.json()
 }
 
-export async function createDirectory({ path }) {
+export async function createDirectory({ path, kind, connectionId, remotePath }) {
   const res = await apiFetch('/directories', {
     method: 'POST',
     headers: jsonHeaders,
-    body: JSON.stringify({ path }),
+    body: JSON.stringify({
+      path,
+      kind,
+      connection_id: connectionId,
+      remote_path: remotePath,
+    }),
   })
   if (!res.ok) {
     throw await apiError(res)
@@ -510,6 +515,76 @@ export async function updateDirectory(id, payload) {
 
 export async function deleteDirectory(id) {
   return updateDirectory(id, { is_delete: true })
+}
+
+// Remote storage connections (WebDAV)
+
+export async function fetchStorageConnections() {
+  const res = await apiFetch('/storage/connections', { cache: 'no-store' })
+  if (!res.ok) throw await apiError(res)
+  return res.json()
+}
+
+export async function createStorageConnection(payload) {
+  const res = await apiFetch('/storage/connections', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw await apiError(res)
+  return res.json()
+}
+
+export async function updateStorageConnection(id, payload) {
+  const res = await apiFetch(`/storage/connections/${id}`, {
+    method: 'PATCH',
+    headers: jsonHeaders,
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw await apiError(res)
+  return res.json()
+}
+
+export async function deleteStorageConnection(id) {
+  const res = await apiFetch(`/storage/connections/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw await apiError(res)
+  return res.json()
+}
+
+// Tests a saved connection or unsaved form values. `path` is the remote folder.
+export async function testStorageConnection({ connectionId, url, username, password, path } = {}) {
+  const res = await apiFetch('/storage/connections/test', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      connection_id: connectionId,
+      url,
+      username,
+      password,
+      path,
+    }),
+  })
+  if (!res.ok) throw await apiError(res)
+  return res.json()
+}
+
+// Lists remote folders below a saved connection. Mirrors browseDirectories shape.
+export async function browseStorageDirectories(
+  connectionId,
+  path = '',
+  { showHidden = false, signal } = {}
+) {
+  const params = new URLSearchParams({
+    connection_id: String(connectionId),
+    path,
+    show_hidden: String(showHidden),
+  })
+  const res = await apiFetch(`/storage/browse?${params}`, {
+    cache: 'no-store',
+    signal,
+  })
+  if (!res.ok) throw await apiError(res)
+  return res.json()
 }
 
 export async function processDirectory(id, mode, layout = 'prefix') {

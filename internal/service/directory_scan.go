@@ -4,18 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"math"
-	"os"
-	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"javboss/internal/common"
 	"javboss/internal/common/logging"
 	"javboss/internal/db"
 	"javboss/internal/models"
+	"javboss/internal/storage"
 	"javboss/internal/util"
 )
 
@@ -24,7 +21,6 @@ type FileEntry struct {
 	DirectoryID   int64
 	DirectoryPath string
 	RelativePath  string
-	AbsolutePath  string
 	Filename      string
 	Size          int64
 	ModifiedAt    time.Time
@@ -198,27 +194,27 @@ func StartManualDirectoryScan(directory models.Directory) error {
 	return nil
 }
 
-// reconcileDirectoryContents 校验目录可用性，并将磁盘内容与数据库文件位置进行对账。
+// reconcileDirectoryContents 校验目录可用性，并将存储后端的内容与数据库文件位置进行对账。
 func reconcileDirectoryContents(ctx context.Context, dir models.Directory, state *syncState, summary *Summary) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
 
-	info, statErr := os.Stat(dir.Path)
-	if statErr != nil {
-		if util.IsPathUnavailable(statErr) {
+	backend, err := DirectoryBackend(ctx, dir)
+	if err != nil {
+		// 远程目录缺少可用连接属于配置错误，而不是路径临时不可用。
+		return false, err
+	}
+
+	if _, statErr := backend.StatRoot(ctx); statErr != nil {
+		if storage.IsUnavailable(statErr) {
+			logging.Error("directory unavailable: id=%d path=%s err=%v", dir.ID, dir.Path, storage.RedactError(statErr))
 			if err := db.SetDirectoryMissing(ctx, dir.ID, true); err != nil {
 				logging.Error("mark directory missing failed id=%d path=%s err=%v", dir.ID, dir.Path, err)
 			}
 			return false, nil
 		}
-		return false, fmt.Errorf("stat directory %s: %w", dir.Path, statErr)
-	}
-	if !info.IsDir() {
-		if err := db.SetDirectoryMissing(ctx, dir.ID, true); err != nil {
-			logging.Error("mark directory missing failed id=%d path=%s err=%v", dir.ID, dir.Path, err)
-		}
-		return false, nil
+		return false, fmt.Errorf("stat directory %s: %w", dir.Path, storage.RedactError(statErr))
 	}
 	if dir.Missing {
 		if err := db.SetDirectoryMissing(ctx, dir.ID, false); err != nil {
@@ -226,68 +222,53 @@ func reconcileDirectoryContents(ctx context.Context, dir models.Directory, state
 		}
 	}
 
-	if err := walkAndReconcileVideoFiles(ctx, dir, state, summary); err != nil {
+	if err := walkAndReconcileVideoFiles(ctx, dir, backend, state, summary); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-// walkAndReconcileVideoFiles 遍历单个目录，实时写入视频位置并记录统计、缩略图和 JAV 关联任务。
-func walkAndReconcileVideoFiles(ctx context.Context, directory models.Directory, state *syncState, summary *Summary) error {
+// walkAndReconcileVideoFiles 通过存储后端遍历单个目录，实时写入视频位置并记录统计、缩略图和 JAV 关联任务。
+func walkAndReconcileVideoFiles(
+	ctx context.Context,
+	directory models.Directory,
+	backend storage.Backend,
+	state *syncState,
+	summary *Summary,
+) error {
 	// 边遍历文件边做指纹计算和 DB 更新，避免一次性构建全量快照
-	normalizedRoot := filepath.Clean(directory.Path)
 	progress, _ := ctx.Value(directoryScanProgressKey{}).(*directoryScanProgress)
-	return filepath.WalkDir(normalizedRoot, func(candidatePath string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			logging.Error("walk directory entry failed, skip: root=%s path=%s err=%v", normalizedRoot, candidatePath, walkErr)
-			return nil
-		}
-
+	return backend.Walk(ctx, func(entry storage.Entry) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-
-		if entry.IsDir() {
+		if entry.IsDir {
 			return nil
 		}
-		// Count every visited file, including non-video files, before video filtering/probing.
+		// 统计所有访问到的文件（含非视频），再做视频过滤与探测。
 		progress.recordFile()
-		if !util.IsVideoCandidate(candidatePath) {
+
+		relativePath := storage.CleanRelPath(entry.RelPath)
+		if relativePath == "" {
+			return nil
+		}
+		if !isVideoCandidate(ctx, backend, relativePath) {
 			return nil
 		}
 
-		info, err := entry.Info()
-		if err != nil {
-			if errors.Is(err, fs.ErrPermission) {
-				return nil
-			}
-			return err
-		}
-
-		// 计算相对路径，确保只处理目录内的文件（防止符号链接等越界）
-		normalizedPath := filepath.Clean(candidatePath)
-		relativePath, err := filepath.Rel(normalizedRoot, normalizedPath)
-		if err != nil {
-			return err
-		}
-		if strings.HasPrefix(relativePath, "..") {
-			return nil
-		}
-
-		relativePath = filepath.ToSlash(cleanRelativePath(relativePath))
-		modTime := info.ModTime().UTC()
+		modTime := entry.ModTime.UTC()
 		summary.FilesSeen++
 
-		// If file unchanged (size + mtime), skip probe and DB touches but mark as seen.
+		// 文件未变化（size + mtime 相同）时跳过 probe 与数据库写入，但仍标记为已发现。
 		pathKey := makePathKey(directory.ID, relativePath)
 		if existingLoc, ok := state.existingLocationByPath[pathKey]; ok {
 			existingVideo := state.existingByID[existingLoc.VideoID]
-			if existingVideo != nil && existingVideo.Size == info.Size() && existingLoc.ModifiedAt.Equal(modTime) {
+			if existingVideo != nil && existingVideo.Size == entry.Size && existingLoc.ModifiedAt.Equal(modTime) {
 				state.processedLocationIDs[existingLoc.ID] = struct{}{}
 				if existingLoc.IsDelete {
 					saved, err := db.UpsertVideoLocation(ctx, existingLoc.VideoID, directory.ID, relativePath, modTime)
 					if err != nil {
-						logging.Error("unhide video location failed, skip: path=%s err=%v", normalizedPath, err)
+						logging.Error("unhide video location failed, skip: path=%s err=%v", relativePath, err)
 						return nil
 					}
 					existingLoc.IsDelete = false
@@ -305,26 +286,25 @@ func walkAndReconcileVideoFiles(ctx context.Context, directory models.Directory,
 			}
 		}
 
-		logging.Info("scan file: root=%s path=%s size=%d", normalizedRoot, relativePath, info.Size())
+		logging.Info("scan file: root=%s path=%s size=%d", directory.Path, relativePath, entry.Size)
 
-		meta, err := util.ProbeVideoContext(ctx, normalizedPath)
+		meta, err := util.ProbeVideoContext(ctx, backend.MediaPath(relativePath))
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return err
 			}
-			logging.Error("probe video metadata error: %v", err)
+			logging.Error("probe video metadata error: %v", storage.RedactError(err))
 			return nil
 		}
-		fingerprint := meta.FingerprintV2(info.Size())
+		fingerprint := meta.FingerprintV2(entry.Size)
 		durationSec := int64(math.Round(meta.DurationSeconds))
 
 		fileEntry := &FileEntry{
 			DirectoryID:   directory.ID,
-			DirectoryPath: normalizedRoot,
+			DirectoryPath: directory.Path,
 			RelativePath:  relativePath,
-			AbsolutePath:  normalizedPath,
-			Filename:      info.Name(),
-			Size:          info.Size(),
+			Filename:      entry.Name,
+			Size:          entry.Size,
 			ModifiedAt:    modTime,
 			Fingerprint:   fingerprint,
 			DurationSec:   durationSec,
@@ -332,6 +312,20 @@ func walkAndReconcileVideoFiles(ctx context.Context, directory models.Directory,
 
 		return upsertVideo(ctx, fileEntry, state, summary)
 	})
+}
+
+// isVideoCandidate 判断发现的文件是否应交给 ffprobe 做最终校验。
+// 扩展名未知时会读取文件头做容器嗅探，本地与远程行为一致。
+func isVideoCandidate(ctx context.Context, backend storage.Backend, relativePath string) bool {
+	if util.HasVideoExtension(relativePath) {
+		return true
+	}
+	header, err := storage.ReadPrefix(ctx, backend, relativePath, storage.HeaderSniffSize)
+	if err != nil {
+		logging.Error("read file header failed, skip: path=%s err=%v", relativePath, storage.RedactError(err))
+		return false
+	}
+	return util.IsVideoBytes(relativePath, header)
 }
 
 // upsertVideo 根据文件指纹复用或创建视频，并写入当前目录中的文件位置。
@@ -345,7 +339,7 @@ func upsertVideo(ctx context.Context, entry *FileEntry, state *syncState, summar
 	if entry.Fingerprint != "" {
 		existingVideo, err := db.GetVideoByFingerprint(ctx, entry.Fingerprint)
 		if err != nil {
-			logging.Error("lookup video by fingerprint failed, skip: path=%s err=%v", entry.AbsolutePath, err)
+			logging.Error("lookup video by fingerprint failed, skip: path=%s err=%v", entry.RelativePath, err)
 			return nil
 		}
 		if existingVideo != nil {
@@ -356,7 +350,7 @@ func upsertVideo(ctx context.Context, entry *FileEntry, state *syncState, summar
 
 	if video != nil {
 		if err := upsertLocationForEntry(ctx, video, entry, state); err != nil {
-			logging.Error("save video location failed, skip: path=%s err=%v", entry.AbsolutePath, err)
+			logging.Error("save video location failed, skip: path=%s err=%v", entry.RelativePath, err)
 			return nil
 		}
 		return nil
@@ -370,24 +364,23 @@ func upsertVideo(ctx context.Context, entry *FileEntry, state *syncState, summar
 	}
 
 	if err := db.CreateVideo(ctx, video); err != nil {
-		// Another directory scan may have inserted the same globally unique fingerprint between
-		// our lookup and create. Reuse that row so this directory's location is not skipped.
+		// 并发扫描可能在查找与创建之间插入了相同指纹的视频，复用该行以免漏掉本目录的位置。
 		existingVideo, lookupErr := db.GetVideoByFingerprint(ctx, entry.Fingerprint)
 		if lookupErr != nil || existingVideo == nil {
-			logging.Error("create video failed, skip: path=%s err=%v", entry.AbsolutePath, err)
+			logging.Error("create video failed, skip: path=%s err=%v", entry.RelativePath, err)
 			return nil
 		}
 		video = existingVideo
 		state.existingByID[video.ID] = video
 		if err := upsertLocationForEntry(ctx, video, entry, state); err != nil {
-			logging.Error("save video location after concurrent insert failed, skip: path=%s err=%v", entry.AbsolutePath, err)
+			logging.Error("save video location after concurrent insert failed, skip: path=%s err=%v", entry.RelativePath, err)
 		}
 		return nil
 	}
 	summary.Inserted++
 	state.existingByID[video.ID] = video
 	if err := upsertLocationForEntry(ctx, video, entry, state); err != nil {
-		logging.Error("save video location failed, skip: path=%s err=%v", entry.AbsolutePath, err)
+		logging.Error("save video location failed, skip: path=%s err=%v", entry.RelativePath, err)
 		return nil
 	}
 	video.ModifiedAt = entry.ModifiedAt
@@ -441,16 +434,4 @@ func hideUnprocessedVideoLocations(ctx context.Context, processedLocationIDs map
 	}
 	summary.Removed += len(staleIDs)
 	return nil
-}
-
-// cleanRelativePath 规范化用于数据库存储的目录内相对路径。
-func cleanRelativePath(p string) string {
-	if p == "" {
-		return ""
-	}
-	cleaned := filepath.Clean(p)
-	if cleaned == "." {
-		return ""
-	}
-	return filepath.ToSlash(cleaned)
 }

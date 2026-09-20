@@ -73,41 +73,47 @@ func (m *VideoMetadata) FingerprintV2(size int64) string {
 // video-stream validation. Known video extensions are accepted as candidates so
 // uncommon or newer container signatures are not filtered out prematurely.
 func IsVideoCandidate(path string) bool {
-	if hasVideoExtension(filepath.Ext(path)) {
+	if HasVideoExtension(path) {
 		return true
 	}
 	return IsVideo(path)
 }
 
-// IsVideo detects video content by inspecting the initial bytes and matching
-// known container signatures.
-func IsVideo(path string) bool {
-	ext := strings.ToLower(filepath.Ext(path))
-	f, err := os.Open(path)
-	if err != nil {
+// HasVideoExtension reports whether the file name carries a known video container
+// extension. It never touches the filesystem, so it also works for remote paths.
+func HasVideoExtension(name string) bool {
+	return hasVideoExtension(filepath.Ext(name))
+}
+
+// IsVideoCandidateBytes is IsVideoCandidate for callers that already hold the
+// leading bytes (used for remote files, where opening a local path is impossible).
+func IsVideoCandidateBytes(name string, header []byte) bool {
+	if HasVideoExtension(name) {
+		return true
+	}
+	return IsVideoBytes(name, header)
+}
+
+// IsVideoBytes detects video content from the leading bytes of a file.
+func IsVideoBytes(name string, header []byte) bool {
+	if len(header) == 0 {
 		return false
 	}
-	defer f.Close()
+	ext := strings.ToLower(filepath.Ext(name))
 
 	// filetype recommends at least 261 bytes. Read enough MPEG-TS packets to
 	// recognize transport streams by content even when the extension is incorrect
 	// (for example, a .mp4 file containing MPEG-TS data).
-	header := make([]byte, 4*204)
-	n, err := f.Read(header)
-	if n == 0 && err != nil {
-		return false
-	}
-	buf := header[:n]
-	if isMPEGTransportStreamHeader(buf) {
+	if isMPEGTransportStreamHeader(header) {
 		return true
 	}
-	if hasVideoExtension(ext) && isISOBMFFHeader(buf) {
+	if hasVideoExtension(ext) && isISOBMFFHeader(header) {
 		return true
 	}
-	if isRealMediaExtension(ext) && isRealMediaHeader(buf) {
+	if isRealMediaExtension(ext) && isRealMediaHeader(header) {
 		return true
 	}
-	kind, err := filetype.Match(buf)
+	kind, err := filetype.Match(header)
 	if err != nil {
 		return false
 	}
@@ -116,6 +122,23 @@ func IsVideo(path string) bool {
 	}
 	// Accept any MIME with top-level type "video"
 	return strings.HasPrefix(kind.MIME.Value, "video/") || kind.MIME.Type == "video"
+}
+
+// IsVideo detects video content by inspecting the initial bytes and matching
+// known container signatures.
+func IsVideo(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	header := make([]byte, 4*204)
+	n, err := f.Read(header)
+	if n == 0 && err != nil {
+		return false
+	}
+	return IsVideoBytes(path, header[:n])
 }
 
 func isMPEGTransportStreamHeader(buf []byte) bool {

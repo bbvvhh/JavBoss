@@ -6,7 +6,7 @@ import FolderOpenOutlinedIcon from '@mui/icons-material/FolderOpenOutlined'
 import HomeOutlinedIcon from '@mui/icons-material/HomeOutlined'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import { CircularProgress, IconButton, Tooltip } from '@mui/material'
-import { browseDirectories } from '@/api'
+import { browseDirectories, browseStorageDirectories } from '@/api'
 import AppModal from '@/components/AppModal'
 import { useStore } from '@/store'
 import { apiHostPath, displayHostPath, hostPathsEnabled } from '@/utils/hostPath'
@@ -14,23 +14,56 @@ import { getErrorMessage } from '@/utils/errors'
 import { zh } from '@/utils/i18n'
 
 // Mount when opening; onSelect returns an absolute path understood by the server.
-export default function DirectoryPickerModal({ initialPath = '', onSelect, onClose }) {
+// With `storageConnectionId` the picker browses a read-only WebDAV source instead,
+// where paths are remote paths that must be used verbatim.
+export default function DirectoryPickerModal({
+  initialPath = '',
+  onSelect,
+  onClose,
+  storageConnectionId = null,
+}) {
   const useHostPaths = useStore((state) => hostPathsEnabled(state.config))
   const titleId = useId()
   const pathId = useId()
+  const remoteConnectionId = Number(storageConnectionId)
+  const browsingRemote = Number.isFinite(remoteConnectionId) && remoteConnectionId > 0
   const [request, setRequest] = useState(() => ({
     path: initialPath,
   }))
-  const [pathInput, setPathInput] = useState(displayHostPath(request.path, useHostPaths))
+  const [pathInput, setPathInput] = useState(
+    browsingRemote ? String(request.path || '') : displayHostPath(request.path, useHostPaths)
+  )
   const [listing, setListing] = useState(null)
   const [showHidden, setShowHidden] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  // Remote listings never go through the host path mapping.
+  const displayListingPath = (value) =>
+    browsingRemote ? String(value || '') : displayHostPath(value, useHostPaths)
 
   useEffect(() => {
     const controller = new AbortController()
     setLoading(true)
     setError('')
+    if (browsingRemote) {
+      const path = String(request.path || '')
+      browseStorageDirectories(remoteConnectionId, path, { showHidden, signal: controller.signal })
+        .then((data) => {
+          if (controller.signal.aborted) return
+          setListing(data)
+          setPathInput(String(data.path || ''))
+        })
+        .catch((err) => {
+          if (!controller.signal.aborted) {
+            setListing(null)
+            setError(getErrorMessage(err))
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false)
+        })
+      return () => controller.abort()
+    }
     const path = apiHostPath(request.path, useHostPaths) || (useHostPaths ? '/host' : '')
     browseDirectories(path, { showHidden, signal: controller.signal })
       .then((data) => {
@@ -48,17 +81,21 @@ export default function DirectoryPickerModal({ initialPath = '', onSelect, onClo
         if (!controller.signal.aborted) setLoading(false)
       })
     return () => controller.abort()
-  }, [request, showHidden, useHostPaths])
+  }, [browsingRemote, remoteConnectionId, request, showHidden, useHostPaths])
 
   const navigate = (path) => {
     setLoading(true)
-    setPathInput(displayHostPath(path, useHostPaths))
+    setPathInput(displayListingPath(path))
     setRequest({ path })
   }
-  const parent = useHostPaths && listing?.path === '/host' ? '' : listing?.parent
-  const roots = useHostPaths ? [{ name: '/', path: '/host' }] : listing?.roots || []
+  const parent = !browsingRemote && useHostPaths && listing?.path === '/host' ? '' : listing?.parent
+  const roots = browsingRemote
+    ? listing?.roots || []
+    : useHostPaths
+      ? [{ name: '/', path: '/host' }]
+      : listing?.roots || []
   const directories = listing?.directories || []
-  const inputChanged = pathInput !== displayHostPath(listing?.path, useHostPaths)
+  const inputChanged = pathInput !== displayListingPath(listing?.path)
   const iconButton = (label, icon, onClick, disabled = false) => (
     <Tooltip title={label}>
       <span>
@@ -87,8 +124,18 @@ export default function DirectoryPickerModal({ initialPath = '', onSelect, onClo
         <div>
           <h2 id={titleId} className="flex items-center gap-2 text-lg font-semibold text-gray-900">
             <FolderOpenOutlinedIcon className="text-blue-600" />
-            {zh('选择目录', 'Choose directory')}
+            {browsingRemote
+              ? zh('选择 WebDAV 远程目录', 'Choose a WebDAV folder')
+              : zh('选择目录', 'Choose directory')}
           </h2>
+          {browsingRemote && (
+            <p className="mt-1 text-xs text-gray-500">
+              {zh(
+                '远程目录为只读来源，路径直接取自 WebDAV 服务器。',
+                'Remote folders are read-only and paths come straight from the WebDAV server.'
+              )}
+            </p>
+          )}
         </div>
         {iconButton(zh('关闭', 'Close'), <CloseRoundedIcon />, onClose)}
       </div>
@@ -101,7 +148,7 @@ export default function DirectoryPickerModal({ initialPath = '', onSelect, onClo
             loading || !parent
           )}
           {iconButton(zh('根目录', 'Root directory'), <HomeOutlinedIcon fontSize="small" />, () =>
-            navigate(useHostPaths ? '/host' : '')
+            navigate(browsingRemote ? '' : useHostPaths ? '/host' : '')
           )}
           {iconButton(
             zh('刷新', 'Refresh'),
@@ -135,7 +182,7 @@ export default function DirectoryPickerModal({ initialPath = '', onSelect, onClo
           onSubmit={(event) => {
             event.preventDefault()
             event.stopPropagation()
-            navigate(apiHostPath(pathInput, useHostPaths))
+            navigate(browsingRemote ? pathInput : apiHostPath(pathInput, useHostPaths))
           }}
           className="flex gap-2"
         >
@@ -146,7 +193,11 @@ export default function DirectoryPickerModal({ initialPath = '', onSelect, onClo
             id={pathId}
             value={pathInput}
             onChange={(event) => setPathInput(event.target.value)}
-            placeholder={zh('输入完整目录路径', 'Enter an absolute directory path')}
+            placeholder={
+              browsingRemote
+                ? zh('输入远程目录路径，例如 /JAV/HD', 'Enter a remote folder path, e.g. /JAV/HD')
+                : zh('输入完整目录路径', 'Enter an absolute directory path')
+            }
             className="min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm outline-none focus:border-blue-500"
           />
           <button
@@ -199,7 +250,7 @@ export default function DirectoryPickerModal({ initialPath = '', onSelect, onClo
                   type="button"
                   onClick={() => navigate(entry.path)}
                   className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-blue-50 focus-visible:bg-blue-50"
-                  title={displayHostPath(entry.path, useHostPaths)}
+                  title={displayListingPath(entry.path)}
                 >
                   <FolderOpenOutlinedIcon className="shrink-0 text-blue-500" fontSize="small" />
                   <span className="min-w-0 flex-1 break-all">{entry.name}</span>
@@ -213,7 +264,7 @@ export default function DirectoryPickerModal({ initialPath = '', onSelect, onClo
       <div className="shrink-0 space-y-3 border-t bg-gray-50 px-5 py-4">
         <p className="break-all text-xs text-gray-500" aria-live="polite">
           {zh('当前目录：', 'Current directory: ')}
-          {loading ? '…' : displayHostPath(listing?.path, useHostPaths) || '—'}
+          {loading ? '…' : displayListingPath(listing?.path) || '—'}
         </p>
         <div className="flex justify-end gap-2">
           <button
@@ -225,8 +276,14 @@ export default function DirectoryPickerModal({ initialPath = '', onSelect, onClo
           </button>
           <button
             type="button"
-            disabled={loading || !listing || !!error || inputChanged}
-            onClick={() => onSelect(listing.path)}
+            disabled={
+              loading ||
+              !listing ||
+              !!error ||
+              inputChanged ||
+              (browsingRemote && !String(listing?.path || ''))
+            }
+            onClick={() => onSelect(browsingRemote ? String(listing.path || '') : listing.path)}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {zh('选择此目录', 'Select this directory')}

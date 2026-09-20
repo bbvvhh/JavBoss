@@ -14,6 +14,7 @@ import (
 	dbpkg "javboss/internal/db"
 	"javboss/internal/models"
 	"javboss/internal/service"
+	"javboss/internal/storage"
 )
 
 const maxDirectoryAutoScanIntervalMinutes = 525600
@@ -53,23 +54,81 @@ func listDirectories(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// directorySourceRequest carries the storage-source fields of a directory
+// create/update request.
+type directorySourceRequest struct {
+	Path         *string `json:"path"`
+	RemotePath   *string `json:"remote_path"`
+	Kind         *string `json:"kind"`
+	ConnectionID *int64  `json:"connection_id"`
+}
+
+// changed reports whether the request asks to change where the directory reads from.
+func (r directorySourceRequest) changed() bool {
+	return r.Path != nil || r.RemotePath != nil || r.Kind != nil || r.ConnectionID != nil
+}
+
+// build resolves the requested source on top of the directory's current values,
+// so a partial edit (for example only switching the kind) keeps the rest.
+func (r directorySourceRequest) build(current *models.Directory) dbpkg.DirectorySource {
+	source := dbpkg.DirectorySource{Kind: current.StorageKind(), Path: current.Path}
+	if current.IsRemote() {
+		source.Path = current.RemotePath
+		source.ConnectionID = current.ConnectionID
+	}
+	if r.Kind != nil {
+		source.Kind = *r.Kind
+	}
+	if storage.NormalizeKind(source.Kind) == storage.KindWebDAV {
+		if r.ConnectionID != nil {
+			source.ConnectionID = r.ConnectionID
+		}
+		switch {
+		case r.RemotePath != nil:
+			source.Path = *r.RemotePath
+		case r.Path != nil:
+			source.Path = *r.Path
+		}
+		return source
+	}
+	// Switching back to a local path drops the remote fields.
+	source.ConnectionID = nil
+	if r.Path != nil {
+		source.Path = *r.Path
+	}
+	return source
+}
+
 func createDirectory(c *gin.Context) {
 	var req struct {
-		Path string `json:"path"`
+		Path         string `json:"path"`
+		RemotePath   string `json:"remote_path"`
+		Kind         string `json:"kind"`
+		ConnectionID int64  `json:"connection_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondLocalizedError(c, http.StatusBadRequest, "添加目录请求无效", "Invalid add-directory request")
 		return
 	}
-	if strings.TrimSpace(req.Path) == "" {
+
+	source := dbpkg.DirectorySource{Kind: req.Kind, Path: strings.TrimSpace(req.Path)}
+	if storage.NormalizeKind(req.Kind) == storage.KindWebDAV {
+		source.Path = strings.TrimSpace(req.RemotePath)
+		if source.Path == "" {
+			source.Path = strings.TrimSpace(req.Path)
+		}
+		connectionID := req.ConnectionID
+		source.ConnectionID = &connectionID
+	}
+	if strings.TrimSpace(source.Path) == "" {
 		respondLocalizedError(c, http.StatusBadRequest, "目录路径不能为空", "Directory path is required")
 		return
 	}
 
-	dir, err := dbpkg.CreateDirectory(c.Request.Context(), req.Path)
+	dir, err := dbpkg.CreateDirectoryFromSource(c.Request.Context(), source)
 	if err != nil {
 		logging.Error("create directory error: %v", err)
-		respondLocalizedError(c, http.StatusBadRequest, "添加目录失败，请检查路径是否有效或已存在", "Failed to add directory; check whether the path is valid or already exists")
+		respondDirectorySourceError(c, err, "添加目录失败，请检查路径是否有效或已存在", "Failed to add directory; check whether the path is valid or already exists")
 		return
 	}
 	go func(created models.Directory) {
@@ -93,6 +152,9 @@ func updateDirectory(c *gin.Context) {
 
 	var req struct {
 		Path                    *string `json:"path"`
+		RemotePath              *string `json:"remote_path"`
+		Kind                    *string `json:"kind"`
+		ConnectionID            *int64  `json:"connection_id"`
 		IsDelete                *bool   `json:"is_delete"`
 		Enabled                 *bool   `json:"enabled"`
 		AutoScanEnabled         *bool   `json:"auto_scan_enabled"`
@@ -106,14 +168,46 @@ func updateDirectory(c *gin.Context) {
 		respondLocalizedError(c, http.StatusBadRequest, "目录路径不能为空", "Directory path is required")
 		return
 	}
+	if req.RemotePath != nil && strings.TrimSpace(*req.RemotePath) == "" {
+		respondLocalizedError(c, http.StatusBadRequest, "远程路径不能为空", "Remote path is required")
+		return
+	}
 	if req.AutoScanIntervalMinutes != nil &&
 		(*req.AutoScanIntervalMinutes < 1 || *req.AutoScanIntervalMinutes > maxDirectoryAutoScanIntervalMinutes) {
 		respondLocalizedError(c, http.StatusBadRequest, "自动扫描周期必须在 1 到 525600 分钟之间", "The automatic scan interval must be between 1 and 525600 minutes")
 		return
 	}
 
+	current, err := dbpkg.GetDirectory(c.Request.Context(), id)
+	if err != nil {
+		logging.Error("get directory for update failed id=%d err=%v", id, err)
+		respondLocalizedError(c, http.StatusInternalServerError, "读取目录失败", "Failed to load directory")
+		return
+	}
+	if current == nil {
+		respondLocalizedError(c, http.StatusNotFound, "目录不存在", "Directory does not exist")
+		return
+	}
+
+	sourceRequest := directorySourceRequest{
+		Path:         req.Path,
+		RemotePath:   req.RemotePath,
+		Kind:         req.Kind,
+		ConnectionID: req.ConnectionID,
+	}
+	sourceChanged := sourceRequest.changed()
+	var source *dbpkg.DirectorySource
+	if sourceChanged {
+		resolved := sourceRequest.build(current)
+		if strings.TrimSpace(resolved.Path) == "" {
+			respondLocalizedError(c, http.StatusBadRequest, "目录路径不能为空", "Directory path is required")
+			return
+		}
+		source = &resolved
+	}
+
 	var releaseScanReservation func()
-	if req.Path != nil || req.IsDelete != nil {
+	if sourceChanged || req.IsDelete != nil {
 		reserveCtx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 		release, err := service.CancelAndReserveDirectoryScan(reserveCtx, id)
 		cancel()
@@ -130,15 +224,10 @@ func updateDirectory(c *gin.Context) {
 		}()
 	}
 
-	var dir *models.Directory
-	if req.Path != nil || req.IsDelete != nil || req.Enabled != nil {
-		dir, err = dbpkg.UpdateDirectory(c.Request.Context(), id, req.Path, req.IsDelete, req.Enabled)
-	} else {
-		dir, err = dbpkg.GetDirectory(c.Request.Context(), id)
-	}
+	dir, err := dbpkg.UpdateDirectorySource(c.Request.Context(), id, source, req.IsDelete, req.Enabled)
 	if err != nil {
 		logging.Error("update directory error: %v", err)
-		respondLocalizedError(c, http.StatusBadRequest, "修改目录失败，请检查路径是否有效或已存在", "Failed to update directory; check whether the path is valid or already exists")
+		respondDirectorySourceError(c, err, "修改目录失败，请检查路径是否有效或已存在", "Failed to update directory; check whether the path is valid or already exists")
 		return
 	}
 	if dir == nil {
@@ -166,7 +255,7 @@ func updateDirectory(c *gin.Context) {
 		releaseScanReservation()
 		releaseScanReservation = nil
 	}
-	shouldScan := req.Path != nil || (req.IsDelete != nil && !*req.IsDelete)
+	shouldScan := sourceChanged || (req.IsDelete != nil && !*req.IsDelete)
 	go func(updated models.Directory, scan bool) {
 		if updated.IsDelete || !scan {
 			return
@@ -180,6 +269,16 @@ func updateDirectory(c *gin.Context) {
 		}
 	}(*dir, shouldScan)
 	c.JSON(http.StatusOK, dir)
+}
+
+// respondDirectorySourceError maps storage source failures to localized responses.
+func respondDirectorySourceError(c *gin.Context, err error, zhFallback, enFallback string) {
+	switch {
+	case errors.Is(err, dbpkg.ErrStorageConnectionNotFound):
+		respondLocalizedError(c, http.StatusBadRequest, "所选 WebDAV 连接不存在", "The selected WebDAV connection does not exist")
+	default:
+		respondLocalizedError(c, http.StatusBadRequest, zhFallback, enFallback)
+	}
 }
 
 func scanDirectory(c *gin.Context) {
@@ -245,11 +344,17 @@ func processDirectory(c *gin.Context) {
 		respondLocalizedError(c, http.StatusConflict, "目录当前不可用", "The directory is currently unavailable")
 		return
 	}
+	if dir.IsRemote() {
+		respondRemoteWriteUnsupported(c, "整理远程目录", "organizing a remote directory")
+		return
+	}
 
 	startCtx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 	if err := service.StartDirectoryProcessing(startCtx, *dir, req.Mode, req.Layout); err != nil {
 		switch {
+		case errors.Is(err, service.ErrRemoteDirectoryReadOnly):
+			respondRemoteWriteUnsupported(c, "整理远程目录", "organizing a remote directory")
 		case errors.Is(err, service.ErrInvalidDirectoryProcessMode):
 			respondLocalizedError(c, http.StatusBadRequest, "目录处理模式无效", "Invalid directory processing mode")
 		case errors.Is(err, service.ErrInvalidDirectoryProcessLayout):

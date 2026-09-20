@@ -41,6 +41,8 @@ var (
 	ErrInvalidDirectoryProcessMode   = errors.New("invalid directory process mode")
 	ErrInvalidDirectoryProcessLayout = errors.New("invalid directory process layout")
 	ErrDirectoryWorkInProgress       = errors.New("directory work in progress")
+	// ErrRemoteDirectoryReadOnly reports a filesystem-mutating job on a WebDAV source.
+	ErrRemoteDirectoryReadOnly = errors.New("remote directories are read-only")
 
 	directoryProcessingMu     sync.Mutex
 	directoryProcessingStatus = map[int64]string{}
@@ -113,6 +115,11 @@ func StartDirectoryProcessing(ctx context.Context, directory models.Directory, m
 	}
 	if directory.ID <= 0 || directory.IsDelete {
 		return errors.New("invalid directory")
+	}
+	// 整理/生成侧车会改写源目录里的文件。WebDAV 目录是只读的，直接拒绝，
+	// 否则 directory.Path（webdav://…）会被当成合法本地路径写出畸形目录。
+	if directory.IsRemote() {
+		return ErrRemoteDirectoryReadOnly
 	}
 
 	directoryProcessingMu.Lock()
@@ -206,6 +213,9 @@ func ProcessDirectory(
 	}
 	if strings.TrimSpace(directory.Path) == "" {
 		return nil, errors.New("directory path is empty")
+	}
+	if directory.IsRemote() {
+		return nil, ErrRemoteDirectoryReadOnly
 	}
 
 	items, err := db.ListJavsForDirectoryProcessing(ctx, directory.ID)

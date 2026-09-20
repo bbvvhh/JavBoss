@@ -21,6 +21,7 @@ export default defineConfig({
       '/tags': backendProxy(),
       '/sync': backendProxy(),
       '/directories': backendProxy(),
+      '/storage': backendProxy(),
       '/downloader': backendProxy(),
       '/downloads': backendProxy(),
       '/extension': backendProxy(),

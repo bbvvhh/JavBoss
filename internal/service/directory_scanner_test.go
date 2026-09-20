@@ -104,7 +104,11 @@ func TestDirectoryScanProgressCountsCurrentFilesAndSuccessfulLinks(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := walkAndReconcileVideoFiles(scanCtx, dir, state, &Summary{}); err != nil {
+	backend, err := DirectoryBackend(scanCtx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := walkAndReconcileVideoFiles(scanCtx, dir, backend, state, &Summary{}); err != nil {
 		t.Fatal(err)
 	}
 	assertProgress(5, 3, 0)

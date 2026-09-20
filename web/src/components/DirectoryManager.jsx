@@ -7,13 +7,22 @@ import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import { CircularProgress, IconButton, Switch, Tooltip } from '@mui/material'
 
-import DirectoryPickerModal from '@/components/DirectoryPickerModal'
 import AppModal from '@/components/AppModal'
+import DirectoryPickerModal from '@/components/DirectoryPickerModal'
+import StorageConnectionModal from '@/components/StorageConnectionModal'
+import { fetchStorageConnections } from '@/api'
 import { useStore } from '@/store'
+import {
+  buildDirectoryPayload,
+  describeDirectorySource,
+  directorySourceKind,
+} from '@/utils/directorySource'
 import { apiHostPath, displayHostPath, hostPathsEnabled } from '@/utils/hostPath'
 import { zh } from '@/utils/i18n'
 import { getErrorMessage } from '@/utils/errors'
 
+const DIRECTORY_SOURCE_LOCAL = 'local'
+const DIRECTORY_SOURCE_WEBDAV = 'webdav'
 const DIRECTORY_PROCESS_SIDECAR = 'sidecar'
 const DIRECTORY_PROCESS_ORGANIZE = 'organize'
 const DIRECTORY_PROCESS_ORGANIZE_WITH_SIDECAR = 'organize_with_sidecar'
@@ -204,9 +213,19 @@ export default function DirectoryManager({
   const picking = pickerTarget !== null
   const [error, setError] = useState('')
   const [adding, setAdding] = useState(false)
+  const [sourceKind, setSourceKind] = useState(DIRECTORY_SOURCE_LOCAL)
+  const [connectionId, setConnectionId] = useState('')
+  const [remotePath, setRemotePath] = useState('')
+  const [connections, setConnections] = useState([])
+  const [connectionsError, setConnectionsError] = useState('')
+  const [connectionsReloadToken, setConnectionsReloadToken] = useState(0)
+  const [connectionsOpen, setConnectionsOpen] = useState(false)
 
   const [editId, setEditId] = useState(null)
   const [editPath, setEditPath] = useState('')
+  const [editKind, setEditKind] = useState(DIRECTORY_SOURCE_LOCAL)
+  const [editConnectionId, setEditConnectionId] = useState('')
+  const [editRemotePath, setEditRemotePath] = useState('')
   const [rowErrorId, setRowErrorId] = useState(null)
   const [rowErrorMsg, setRowErrorMsg] = useState('')
   const [savingId, setSavingId] = useState(null)
@@ -256,8 +275,16 @@ export default function DirectoryManager({
       setPath('')
       setError('')
       setAdding(false)
+      setSourceKind(DIRECTORY_SOURCE_LOCAL)
+      setConnectionId('')
+      setRemotePath('')
+      setConnectionsOpen(false)
+      setConnectionsError('')
       setEditId(null)
       setEditPath('')
+      setEditKind(DIRECTORY_SOURCE_LOCAL)
+      setEditConnectionId('')
+      setEditRemotePath('')
       setRowErrorId(null)
       setRowErrorMsg('')
       setScanSettingsDirectory(null)
@@ -267,6 +294,25 @@ export default function DirectoryManager({
       setToolLayout(DIRECTORY_PROCESS_LAYOUT_PREFIX)
     }
   }, [open])
+
+  useEffect(() => {
+    if (!open) return undefined
+    let cancelled = false
+    fetchStorageConnections()
+      .then((list) => {
+        if (cancelled) return
+        setConnections(Array.isArray(list) ? list : [])
+        setConnectionsError('')
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setConnections([])
+        setConnectionsError(getErrorMessage(err))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [connectionsReloadToken, open])
 
   useEffect(() => {
     if (!toolDirectory) return undefined
@@ -312,17 +358,59 @@ export default function DirectoryManager({
     return () => window.clearInterval(timer)
   }, [onRefresh, open])
 
+  const addingRemote = sourceKind === DIRECTORY_SOURCE_WEBDAV
+  const editingRemote = editKind === DIRECTORY_SOURCE_WEBDAV
+  const pickerInitialPath =
+    {
+      add: path,
+      edit: editPath,
+      'add-remote': remotePath,
+      'edit-remote': editRemotePath,
+    }[pickerTarget] ?? ''
+  const pickerConnectionId =
+    pickerTarget === 'add-remote'
+      ? connectionId
+      : pickerTarget === 'edit-remote'
+        ? editConnectionId
+        : null
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
-    if (!path.trim()) {
+    if (addingRemote) {
+      if (!connectionId) {
+        setError(zh('请选择 WebDAV 连接', 'Choose a WebDAV connection'))
+        return
+      }
+      if (!remotePath.trim()) {
+        setError(zh('远程目录路径不能为空', 'Remote directory path cannot be empty'))
+        return
+      }
+    } else if (!path.trim()) {
       setError(zh('路径不能为空', 'Path cannot be empty'))
       return
     }
     setSubmitting(true)
     try {
-      await onCreate?.({ path: apiPath(path) })
+      await onCreate?.(
+        addingRemote
+          ? buildDirectoryPayload(
+              {
+                kind: DIRECTORY_SOURCE_WEBDAV,
+                connectionId,
+                remotePath,
+              },
+              {
+                connection: zh('请选择 WebDAV 连接', 'Choose a WebDAV connection'),
+                remotePath: zh('远程目录路径不能为空', 'Remote directory path cannot be empty'),
+              }
+            )
+          : { path: apiPath(path) }
+      )
       setPath('')
+      setRemotePath('')
+      setConnectionId('')
+      setSourceKind(DIRECTORY_SOURCE_LOCAL)
       setAdding(false)
     } catch (err) {
       setError(getErrorMessage(err))
@@ -332,8 +420,12 @@ export default function DirectoryManager({
   }
 
   const startEdit = (dir) => {
+    const kind = directorySourceKind(dir)
     setEditId(dir.id)
-    setEditPath(displayPath(dir.path))
+    setEditKind(kind)
+    setEditConnectionId(kind === DIRECTORY_SOURCE_WEBDAV ? String(dir.connection_id ?? '') : '')
+    setEditRemotePath(kind === DIRECTORY_SOURCE_WEBDAV ? String(dir.remote_path || '') : '')
+    setEditPath(kind === DIRECTORY_SOURCE_WEBDAV ? '' : displayPath(dir.path))
     setRowErrorId(null)
     setRowErrorMsg('')
   }
@@ -341,6 +433,9 @@ export default function DirectoryManager({
   const cancelEdit = () => {
     setEditId(null)
     setEditPath('')
+    setEditKind(DIRECTORY_SOURCE_LOCAL)
+    setEditConnectionId('')
+    setEditRemotePath('')
     setRowErrorId(null)
     setRowErrorMsg('')
   }
@@ -348,23 +443,57 @@ export default function DirectoryManager({
   const handleEditSubmit = async (e) => {
     if (e?.preventDefault) e.preventDefault()
     if (!editId) return
-    const trimmed = editPath.trim()
-    if (!trimmed) {
-      setRowErrorId(editId)
-      setRowErrorMsg(zh('路径不能为空', 'Path cannot be empty'))
-      return
+    let payload
+    if (editingRemote) {
+      if (!editConnectionId) {
+        setRowErrorId(editId)
+        setRowErrorMsg(zh('请选择 WebDAV 连接', 'Choose a WebDAV connection'))
+        return
+      }
+      const trimmedRemotePath = editRemotePath.trim()
+      if (!trimmedRemotePath) {
+        setRowErrorId(editId)
+        setRowErrorMsg(zh('远程目录路径不能为空', 'Remote directory path cannot be empty'))
+        return
+      }
+      payload = buildDirectoryPayload(
+        {
+          kind: DIRECTORY_SOURCE_WEBDAV,
+          connectionId: editConnectionId,
+          remotePath: trimmedRemotePath,
+        },
+        {
+          connection: zh('请选择 WebDAV 连接', 'Choose a WebDAV connection'),
+          remotePath: zh('远程目录路径不能为空', 'Remote directory path cannot be empty'),
+        }
+      )
+    } else {
+      const trimmed = editPath.trim()
+      if (!trimmed) {
+        setRowErrorId(editId)
+        setRowErrorMsg(zh('路径不能为空', 'Path cannot be empty'))
+        return
+      }
+      payload = { path: apiPath(trimmed) }
     }
     setSavingId(editId)
     setRowErrorId(null)
     setRowErrorMsg('')
     try {
       const original = directories.find((directory) => directory.id === editId)
-      const nextPath = apiPath(trimmed)
-      if (original && nextPath === original.path) {
+      const unchanged =
+        original != null &&
+        (payload.kind === DIRECTORY_SOURCE_WEBDAV
+          ? directorySourceKind(original) === DIRECTORY_SOURCE_WEBDAV &&
+            Number(original.connection_id) === payload.connection_id &&
+            String(original.remote_path || '') === payload.remote_path
+          : directorySourceKind(original) === DIRECTORY_SOURCE_LOCAL &&
+            payload.path === original.path)
+      if (unchanged) {
         cancelEdit()
         return
       }
-      await onUpdate?.(editId, { path: nextPath })
+      await onUpdate?.(editId, payload)
       cancelEdit()
     } catch (err) {
       setRowErrorId(editId)
@@ -373,6 +502,104 @@ export default function DirectoryManager({
       setSavingId(null)
     }
   }
+
+  const renderSourceKindSwitch = (value, onChange, name, disabled = false) => (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      {[
+        { kind: DIRECTORY_SOURCE_LOCAL, label: zh('本地目录', 'Local folder') },
+        { kind: DIRECTORY_SOURCE_WEBDAV, label: zh('WebDAV 远程目录', 'WebDAV folder') },
+      ].map((option) => (
+        <label
+          key={option.kind}
+          className={`flex cursor-pointer items-center gap-2 rounded border px-3 py-1.5 ${
+            value === option.kind
+              ? 'border-blue-400 bg-blue-50 text-blue-800'
+              : 'text-zinc-600 hover:bg-zinc-50'
+          }`}
+        >
+          <input
+            type="radio"
+            name={name}
+            value={option.kind}
+            checked={value === option.kind}
+            onChange={() => onChange(option.kind)}
+            disabled={disabled}
+          />
+          {option.label}
+        </label>
+      ))}
+    </div>
+  )
+
+  const renderRemoteSourceFields = ({
+    selectId,
+    connectionValue,
+    onConnectionChange,
+    pathValue,
+    onPathChange,
+    onPick,
+    pickDisabled,
+    disabled = false,
+  }) => (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <label htmlFor={selectId} className="sr-only">
+          {zh('WebDAV 连接', 'WebDAV connection')}
+        </label>
+        <select
+          id={selectId}
+          value={connectionValue}
+          onChange={(e) => onConnectionChange(e.target.value)}
+          disabled={disabled}
+          className="w-full rounded border px-3 py-2 text-sm sm:min-w-[240px] sm:flex-none"
+        >
+          <option value="">{zh('请选择 WebDAV 连接', 'Choose a WebDAV connection')}</option>
+          {connections.map((connection) => (
+            <option key={connection.id} value={String(connection.id)}>
+              {String(connection.name || '').trim() || `WebDAV #${connection.id}`}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => setConnectionsOpen(true)}
+          disabled={disabled}
+          className="rounded border px-3 py-2 text-sm hover:bg-gray-100 disabled:opacity-60"
+        >
+          {zh('管理连接 / 新建连接', 'Manage / create connections')}
+        </button>
+      </div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <input
+          value={pathValue}
+          onChange={(e) => onPathChange(e.target.value)}
+          placeholder="/JAV/HD"
+          disabled={disabled}
+          className="w-full rounded border px-3 py-2 text-sm sm:min-w-[420px] sm:flex-1"
+        />
+        <button
+          type="button"
+          onClick={onPick}
+          disabled={pickDisabled}
+          className="rounded border px-3 py-2 text-sm hover:bg-gray-100 disabled:opacity-60"
+        >
+          {picking ? zh('选择中…', 'Picking...') : zh('选择远程目录', 'Choose remote folder')}
+        </button>
+      </div>
+      <div className="text-xs text-blue-700">
+        {zh(
+          '远程目录为只读来源，路径直接取自 WebDAV 服务器。',
+          'Remote folders are read-only; paths come straight from the WebDAV server.'
+        )}
+      </div>
+      {connections.length === 0 && !connectionsError ? (
+        <div className="text-xs text-amber-700">
+          {zh('还没有 WebDAV 连接，请先新建连接。', 'No WebDAV connections yet. Create one first.')}
+        </div>
+      ) : null}
+      {connectionsError ? <div className="text-xs text-red-600">{connectionsError}</div> : null}
+    </div>
+  )
 
   const handleDelete = async (dir) => {
     if (!dir?.id || dir.is_delete) return
@@ -494,6 +721,10 @@ export default function DirectoryManager({
   const currentScanSettingsDirectory =
     directories.find((directory) => directory.id === scanSettingsDirectory?.id) ||
     scanSettingsDirectory
+  const scanSettingsDescription = describeDirectorySource(currentScanSettingsDirectory, connections)
+  const scanSettingsDisplayPath = scanSettingsDescription.isRemote
+    ? `${scanSettingsDescription.label} · ${scanSettingsDescription.detail}`
+    : displayPath(currentScanSettingsDirectory?.path)
   const scanSettingsWorkStatus = directoryWorkStatus(currentScanSettingsDirectory)
   const scanSettingsRunning = scanSettingsWorkStatus === 'scanning'
 
@@ -503,6 +734,8 @@ export default function DirectoryManager({
         <div className="divide-y rounded border">
           {directories.map((d) => {
             const isEditing = editId === d.id
+            const isRemote = directorySourceKind(d) === DIRECTORY_SOURCE_WEBDAV
+            const sourceDescription = describeDirectorySource(d, connections)
             const status = directoryWorkStatus(d)
             const statusDisplay = directoryWorkStatusDisplay(status)
             const lastScanFinishedAt = formatScanFinishedAt(d.last_scan_summary)
@@ -530,38 +763,81 @@ export default function DirectoryManager({
               >
                 <div className="min-w-0 space-y-1 pr-12 md:pr-0">
                   {!isEditing ? (
-                    <div className="flex min-w-0 items-center gap-2">
-                      <div className="min-w-0 truncate text-sm font-medium">
-                        {displayPath(d.path)}
+                    isRemote ? (
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
+                          WebDAV
+                        </span>
+                        <div className="min-w-0 truncate text-sm font-medium">
+                          {sourceDescription.label}
+                        </div>
+                        <div className="min-w-0 break-all text-xs text-zinc-500">
+                          {sourceDescription.detail}
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="flex min-w-0 items-center gap-2">
+                        <div className="min-w-0 truncate text-sm font-medium">
+                          {displayPath(d.path)}
+                        </div>
+                      </div>
+                    )
                   ) : (
                     <form onSubmit={handleEditSubmit} className="space-y-2">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                        <input
-                          value={editPath}
-                          onChange={(e) => setEditPath(e.target.value)}
-                          className="w-full rounded border px-3 py-2 text-sm sm:min-w-[420px] sm:flex-1"
-                          placeholder={pathPlaceholder}
-                        />
-                        {directoryPickerEnabled ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setRowErrorId(null)
-                              setRowErrorMsg('')
-                              setPickerTarget('edit')
-                            }}
-                            disabled={picking || working}
-                            className="rounded border px-3 py-2 text-sm hover:bg-gray-100 disabled:opacity-60"
-                          >
-                            {picking
-                              ? zh('选择中…', 'Picking...')
-                              : zh('选择目录', 'Choose directory')}
-                          </button>
-                        ) : null}
-                      </div>
-                      <div className="text-xs text-blue-700">{pathHelperText}</div>
+                      {renderSourceKindSwitch(
+                        editKind,
+                        (kind) => {
+                          setEditKind(kind)
+                          setRowErrorId(null)
+                          setRowErrorMsg('')
+                        },
+                        `directory-source-edit-${d.id}`,
+                        working
+                      )}
+                      {editingRemote ? (
+                        renderRemoteSourceFields({
+                          selectId: `directory-connection-edit-${d.id}`,
+                          connectionValue: editConnectionId,
+                          onConnectionChange: setEditConnectionId,
+                          pathValue: editRemotePath,
+                          onPathChange: setEditRemotePath,
+                          onPick: () => {
+                            setRowErrorId(null)
+                            setRowErrorMsg('')
+                            setPickerTarget('edit-remote')
+                          },
+                          pickDisabled: picking || working || !editConnectionId,
+                          disabled: working,
+                        })
+                      ) : (
+                        <>
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                            <input
+                              value={editPath}
+                              onChange={(e) => setEditPath(e.target.value)}
+                              className="w-full rounded border px-3 py-2 text-sm sm:min-w-[420px] sm:flex-1"
+                              placeholder={pathPlaceholder}
+                            />
+                            {directoryPickerEnabled ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRowErrorId(null)
+                                  setRowErrorMsg('')
+                                  setPickerTarget('edit')
+                                }}
+                                disabled={picking || working}
+                                className="rounded border px-3 py-2 text-sm hover:bg-gray-100 disabled:opacity-60"
+                              >
+                                {picking
+                                  ? zh('选择中…', 'Picking...')
+                                  : zh('选择目录', 'Choose directory')}
+                              </button>
+                            ) : null}
+                          </div>
+                          <div className="text-xs text-blue-700">{pathHelperText}</div>
+                        </>
+                      )}
                     </form>
                   )}
                   <div className="flex flex-wrap items-center gap-2">
@@ -718,7 +994,14 @@ export default function DirectoryManager({
                           </DirectoryRowIconButton>
                         )}
                         <DirectoryRowIconButton
-                          label={zh('工具', 'Tools')}
+                          label={
+                            isRemote
+                              ? zh(
+                                  'WebDAV 远程目录为只读，无法整理或生成 NFO 和封面',
+                                  'Read-only WebDAV source: organizing and generating NFO and covers are unavailable'
+                                )
+                              : zh('工具', 'Tools')
+                          }
                           onClick={() => {
                             setToolDirectory(d)
                             setToolMode(DIRECTORY_PROCESS_SIDECAR)
@@ -726,7 +1009,7 @@ export default function DirectoryManager({
                             setRowErrorId(null)
                             setRowErrorMsg('')
                           }}
-                          disabled={d.is_delete || working}
+                          disabled={d.is_delete || working || isRemote}
                         >
                           {processingId === d.id ? (
                             <CircularProgress size={16} color="inherit" />
@@ -786,29 +1069,56 @@ export default function DirectoryManager({
       )}
       {adding && (
         <form onSubmit={handleSubmit} className="flex flex-col gap-2 rounded border bg-gray-50 p-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <input
-              id="dir-path-input"
-              value={path}
-              onChange={(e) => setPath(e.target.value)}
-              placeholder={pathPlaceholder}
-              className="flex-1 rounded border px-3 py-2"
-            />
-            {directoryPickerEnabled ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setError('')
-                  setPickerTarget('add')
-                }}
-                disabled={picking || submitting}
-                className="rounded border px-3 py-2 text-sm hover:bg-gray-100 disabled:opacity-60"
-              >
-                {picking ? zh('选择中…', 'Picking...') : zh('选择目录', 'Choose directory')}
-              </button>
-            ) : null}
-          </div>
-          <div className="text-xs text-blue-700">{pathHelperText}</div>
+          {renderSourceKindSwitch(
+            sourceKind,
+            (kind) => {
+              setSourceKind(kind)
+              setError('')
+            },
+            'directory-source-add',
+            submitting
+          )}
+          {addingRemote ? (
+            renderRemoteSourceFields({
+              selectId: 'directory-connection-add',
+              connectionValue: connectionId,
+              onConnectionChange: setConnectionId,
+              pathValue: remotePath,
+              onPathChange: setRemotePath,
+              onPick: () => {
+                setError('')
+                setPickerTarget('add-remote')
+              },
+              pickDisabled: picking || submitting || !connectionId,
+              disabled: submitting,
+            })
+          ) : (
+            <>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input
+                  id="dir-path-input"
+                  value={path}
+                  onChange={(e) => setPath(e.target.value)}
+                  placeholder={pathPlaceholder}
+                  className="flex-1 rounded border px-3 py-2"
+                />
+                {directoryPickerEnabled ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setError('')
+                      setPickerTarget('add')
+                    }}
+                    disabled={picking || submitting}
+                    className="rounded border px-3 py-2 text-sm hover:bg-gray-100 disabled:opacity-60"
+                  >
+                    {picking ? zh('选择中…', 'Picking...') : zh('选择目录', 'Choose directory')}
+                  </button>
+                ) : null}
+              </div>
+              <div className="text-xs text-blue-700">{pathHelperText}</div>
+            </>
+          )}
           {error && <div className="text-sm text-red-600">{error}</div>}
           <div className="flex justify-end gap-2">
             <button
@@ -816,6 +1126,9 @@ export default function DirectoryManager({
               onClick={() => {
                 setAdding(false)
                 setPath('')
+                setRemotePath('')
+                setConnectionId('')
+                setSourceKind(DIRECTORY_SOURCE_LOCAL)
                 setError('')
               }}
               className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50"
@@ -979,10 +1292,10 @@ export default function DirectoryManager({
             {zh('扫描设置', 'Scan Settings')}
           </div>
           <div
-            title={displayPath(currentScanSettingsDirectory.path)}
+            title={scanSettingsDisplayPath}
             className="mt-2 truncate rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-500"
           >
-            {displayPath(currentScanSettingsDirectory.path)}
+            {scanSettingsDisplayPath}
           </div>
           <div className="mt-4 overflow-hidden rounded-xl border border-zinc-200">
             <label
@@ -1064,13 +1377,22 @@ export default function DirectoryManager({
       )}
       {open && pickerTarget && (
         <DirectoryPickerModal
-          initialPath={pickerTarget === 'edit' ? editPath : path}
+          initialPath={pickerInitialPath}
           onClose={() => setPickerTarget(null)}
           onSelect={(selectedPath) => {
             if (pickerTarget === 'edit') setEditPath(displayPath(selectedPath))
+            else if (pickerTarget === 'edit-remote') setEditRemotePath(selectedPath)
+            else if (pickerTarget === 'add-remote') setRemotePath(selectedPath)
             else setPath(displayPath(selectedPath))
             setPickerTarget(null)
           }}
+          storageConnectionId={pickerConnectionId}
+        />
+      )}
+      {connectionsOpen && (
+        <StorageConnectionModal
+          onChanged={() => setConnectionsReloadToken((token) => token + 1)}
+          onClose={() => setConnectionsOpen(false)}
         />
       )}
     </div>

@@ -1,4 +1,7 @@
 .gocache/
+.tools/
+.build-termux/
+.github/
 data/
 docker-data/
 *.db

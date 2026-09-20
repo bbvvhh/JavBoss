@@ -23,6 +23,7 @@ import (
 	"javboss/internal/models"
 	"javboss/internal/mpv"
 	"javboss/internal/runtimeconfig"
+	"javboss/internal/storage"
 	"javboss/internal/util"
 )
 
@@ -174,20 +175,20 @@ type videoJavPossibleCodesResponse struct {
 }
 
 func getVideoStreams(c *gin.Context) {
-	video, fullPath, locationID, err := resolveVideoStreamTarget(c)
+	video, target, err := resolveVideoStreamTarget(c)
 	if err != nil {
 		respondPlaybackError(c, err)
 		return
 	}
 
-	probe, err := util.ProbePlaybackSupport(fullPath)
+	probe, err := util.ProbePlaybackSupport(target.MediaPath)
 	if err != nil {
-		logging.Error("probe playback support error: %v", err)
+		logging.Error("probe playback support error: %v", storage.RedactError(err))
 		respondPlaybackError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, buildPlaybackInfo(video, locationID, probe))
+	c.JSON(http.StatusOK, buildPlaybackInfo(video, target.LocationID(), probe))
 }
 
 func buildPlaybackInfo(video *models.Video, locationID int64, probe *util.PlaybackProbeResult) playbackInfo {
@@ -222,25 +223,66 @@ func buildPlaybackInfo(video *models.Video, locationID int64, probe *util.Playba
 }
 
 func streamVideo(c *gin.Context) {
-	var fullPath string
-	var err error
-	if strings.TrimSpace(c.Query("location_id")) != "" {
-		fullPath, err = resolveStreamPathFromLocationQuery(c)
-	} else {
-		fullPath, err = resolveStreamPathFromQuery(c)
-	}
+	target, err := resolveDirectStreamTarget(c)
 	if err != nil {
-		_, fullPath, _, err = resolveVideoStreamTarget(c)
-		if err != nil {
-			respondPlaybackError(c, err)
-			return
-		}
+		respondPlaybackError(c, err)
+		return
 	}
-	serveVideoFile(c, fullPath)
+	if target.Remote {
+		serveRemoteMediaFile(c, target)
+		return
+	}
+	serveVideoFile(c, target.MediaPath)
+}
+
+// resolveDirectStreamTarget mirrors the historical lookup order: an explicit
+// location id, then a legacy path/dir_path pair, then the video's primary location.
+func resolveDirectStreamTarget(c *gin.Context) (*mediaTarget, error) {
+	ctx := c.Request.Context()
+
+	if strings.TrimSpace(c.Query("location_id")) != "" {
+		videoID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		if err != nil || videoID <= 0 {
+			return nil, errors.New("invalid id")
+		}
+		locationID, err := parseLocationIDQuery(c)
+		if err != nil || locationID <= 0 {
+			return nil, errors.New("invalid location_id")
+		}
+		loc, err := dbpkg.GetActiveVideoLocation(ctx, videoID, locationID)
+		if err != nil {
+			return nil, err
+		}
+		if loc == nil {
+			return nil, os.ErrNotExist
+		}
+		return mediaTargetFromLocation(ctx, loc)
+	}
+
+	if rawPath := strings.TrimSpace(c.Query("path")); rawPath != "" {
+		fullPath, _, err := resolveVideoPath(rawPath, c.Query("dir_path"))
+		if err != nil {
+			return nil, err
+		}
+		return &mediaTarget{MediaPath: fullPath}, nil
+	}
+
+	id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || id <= 0 {
+		return nil, errors.New("invalid id")
+	}
+	loc, err := dbpkg.GetPrimaryVideoLocation(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if loc == nil {
+		return nil, os.ErrNotExist
+	}
+	return mediaTargetFromLocation(ctx, loc)
 }
 
 func streamHLSManifest(c *gin.Context) {
-	video, fullPath, _, err := resolveVideoStreamTarget(c)
+	video, target, err := resolveVideoStreamTarget(c)
 	if err != nil {
 		respondPlaybackError(c, err)
 		return
@@ -252,11 +294,11 @@ func streamHLSManifest(c *gin.Context) {
 
 	resolution := strings.TrimSpace(c.Query("resolution"))
 	c.Header("Cache-Control", "no-cache")
-	common.StreamManager.ServeManifest(c.Writer, c.Request, fullPath, float64(video.DurationSec), resolution)
+	common.StreamManager.ServeManifest(c.Writer, c.Request, target.MediaPath, float64(video.DurationSec), resolution)
 }
 
 func streamHLSSegment(c *gin.Context) {
-	video, fullPath, locationID, err := resolveVideoStreamTarget(c)
+	video, target, err := resolveVideoStreamTarget(c)
 	if err != nil {
 		respondPlaybackError(c, err)
 		return
@@ -271,78 +313,67 @@ func streamHLSSegment(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache")
 	common.StreamManager.ServeSegment(c.Writer, c.Request, manager.StreamOptions{
 		StreamType: manager.StreamTypeHLS,
-		SourcePath: fullPath,
+		SourcePath: target.MediaPath,
 		Duration:   float64(video.DurationSec),
 		Resolution: resolution,
-		Key:        streamCacheKey(video.ID, locationID),
+		Key:        streamCacheKey(video.ID, target.LocationID()),
 		Segment:    segment,
 	})
 }
 
-func resolveStreamPathFromLocationQuery(c *gin.Context) (string, error) {
-	videoID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
-	if err != nil || videoID <= 0 {
-		return "", errors.New("invalid id")
-	}
-	locationID, err := parseLocationIDQuery(c)
-	if err != nil || locationID <= 0 {
-		return "", err
-	}
-	loc, err := dbpkg.GetActiveVideoLocation(c.Request.Context(), videoID, locationID)
-	if err != nil {
-		return "", err
-	}
-	if loc == nil {
-		return "", os.ErrNotExist
-	}
-	fullPath, _, err := resolveVideoPath(loc.RelativePath, loc.DirectoryRef.Path)
-	return fullPath, err
-}
-
-func resolveStreamPathFromQuery(c *gin.Context) (string, error) {
-	rawPath := strings.TrimSpace(c.Query("path"))
-	rawDirPath := strings.TrimSpace(c.Query("dir_path"))
-	fullPath, _, err := resolveVideoPath(rawPath, rawDirPath)
-	return fullPath, err
-}
-
-func resolveVideoStreamTarget(c *gin.Context) (*models.Video, string, int64, error) {
+func resolveVideoStreamTarget(c *gin.Context) (*models.Video, *mediaTarget, error) {
 	id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
 	if err != nil || id <= 0 {
-		return nil, "", 0, errors.New("invalid id")
+		return nil, nil, errors.New("invalid id")
 	}
 
 	video, err := dbpkg.GetVideo(c.Request.Context(), id)
 	if err != nil {
-		return nil, "", 0, err
+		return nil, nil, err
 	}
 	if video == nil {
-		return nil, "", 0, os.ErrNotExist
+		return nil, nil, os.ErrNotExist
 	}
 
 	locationID, err := parseLocationIDQuery(c)
 	if err != nil {
-		return nil, "", 0, err
+		return nil, nil, err
 	}
 
-	var fullPath string
+	var location *models.VideoLocation
 	if locationID > 0 {
-		fullPath, err = resolveStreamPathFromLocationQuery(c)
+		location, err = dbpkg.GetActiveVideoLocation(c.Request.Context(), id, locationID)
 	} else {
-		fullPath, err = resolveVideoPrimaryPath(c.Request.Context(), video)
+		location, err = dbpkg.GetPrimaryVideoLocation(c.Request.Context(), id)
 	}
 	if err != nil {
-		return nil, "", 0, err
+		return nil, nil, err
 	}
-	if _, err := os.Stat(fullPath); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, "", 0, err
-		}
-		return nil, "", 0, err
+	if location == nil {
+		return nil, nil, os.ErrNotExist
 	}
 
-	return video, fullPath, locationID, nil
+	target, err := mediaTargetFromLocation(c.Request.Context(), location)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !ensureMediaExists(c, target) {
+		return nil, nil, errResponseHandled
+	}
+
+	return video, target, nil
 }
+
+// LocationID reports the resolved location id, or 0 for a legacy path request.
+func (t *mediaTarget) LocationID() int64 {
+	if t == nil || t.Location == nil {
+		return 0
+	}
+	return t.Location.ID
+}
+
+// errResponseHandled marks a failure whose HTTP response was already written.
+var errResponseHandled = errors.New("response already handled")
 
 func parseLocationIDQuery(c *gin.Context) (int64, error) {
 	raw := strings.TrimSpace(c.Query("location_id"))
@@ -360,8 +391,14 @@ func respondPlaybackError(c *gin.Context, err error) {
 	switch {
 	case err == nil:
 		return
-	case errors.Is(err, os.ErrNotExist):
+	case errors.Is(err, errResponseHandled):
+		return
+	case errors.Is(err, storage.ErrNotFound), errors.Is(err, os.ErrNotExist):
 		respondLocalizedError(c, http.StatusNotFound, "视频文件或所在目录不存在", "Video file or directory does not exist")
+	case errors.Is(err, storage.ErrUnauthorized):
+		respondLocalizedError(c, http.StatusForbidden, "WebDAV 认证失败，请检查连接账号密码", "WebDAV authentication failed; check the connection credentials")
+	case errors.Is(err, storage.ErrUnsupported):
+		respondLocalizedError(c, http.StatusNotImplemented, "WebDAV 服务器不支持该操作", "The WebDAV server does not support this operation")
 	case errors.Is(err, context.Canceled):
 		c.Status(499)
 	case strings.Contains(err.Error(), "ffmpeg not found"), strings.Contains(err.Error(), "ffprobe not found"):
@@ -371,6 +408,7 @@ func respondPlaybackError(c *gin.Context, err error) {
 	case strings.Contains(err.Error(), "invalid segment"), strings.Contains(err.Error(), "invalid id"), strings.Contains(err.Error(), "invalid location_id"), strings.Contains(err.Error(), "invalid path"):
 		respondLocalizedError(c, http.StatusBadRequest, "播放请求参数无效", "Invalid playback request")
 	default:
+		logging.Error("playback error: %v", storage.RedactError(err))
 		respondLocalizedError(c, http.StatusInternalServerError, "加载播放信息失败", "Failed to load playback information")
 	}
 }
@@ -421,21 +459,6 @@ func streamCacheKey(videoID int64, locationID int64) string {
 	return strconv.FormatInt(videoID, 10)
 }
 
-func resolveVideoPrimaryPath(ctx context.Context, video *models.Video) (string, error) {
-	if video == nil {
-		return "", errors.New("video is nil")
-	}
-	loc, err := dbpkg.GetPrimaryVideoLocation(ctx, video.ID)
-	if err != nil {
-		return "", err
-	}
-	if loc != nil {
-		fullPath, _, err := resolveVideoPath(loc.RelativePath, loc.DirectoryRef.Path)
-		return fullPath, err
-	}
-	return "", errors.New("video location missing")
-}
-
 func serveVideoFile(c *gin.Context, fullPath string) {
 	if _, err := os.Stat(fullPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -446,7 +469,7 @@ func serveVideoFile(c *gin.Context, fullPath string) {
 		respondLocalizedError(c, http.StatusInternalServerError, "读取视频文件失败", "Failed to inspect video file")
 		return
 	}
-	if err := http.NewResponseController(c.Writer).SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
+	if err := http.NewResponseController(c.Writer).SetWriteDeadline(noWriteDeadline); err != nil && !errors.Is(err, http.ErrNotSupported) {
 		logging.Error("disable video stream write deadline error: %v", err)
 	}
 	c.File(fullPath)
@@ -457,11 +480,21 @@ func openVideoFile(c *gin.Context) {
 		respondLocalizedError(c, http.StatusNotImplemented, "当前部署模式已禁用系统播放器", "Desktop file opening is disabled")
 		return
 	}
-	fullPath, dirPath, err := resolveVideoPathFromBody(c)
+	req, err := resolveVideoPathRequestFromBody(c)
 	if err != nil {
 		respondLocalizedError(c, http.StatusBadRequest, "视频文件路径无效", "Invalid video file path")
 		return
 	}
+	target, err := mediaTargetFromRequest(c.Request.Context(), req)
+	if err != nil {
+		respondLocalizedError(c, http.StatusBadRequest, "视频文件路径无效", "Invalid video file path")
+		return
+	}
+	if target.Remote {
+		respondRemoteWriteUnsupported(c, "用系统播放器打开", "opening with the system player")
+		return
+	}
+	fullPath := target.MediaPath
 	if err := ensureVideoFileExists(c, fullPath); err != nil {
 		return
 	}
@@ -470,7 +503,13 @@ func openVideoFile(c *gin.Context) {
 		respondLocalizedError(c, http.StatusInternalServerError, "使用系统播放器打开文件失败", "Failed to open file with the system player")
 		return
 	}
-	incrementPlayCountByPath(c.Request.Context(), dirPath, fullPath)
+	if target.Location != nil {
+		if err := dbpkg.IncrementVideoPlayCount(c.Request.Context(), target.Location.VideoID); err != nil {
+			logging.Error("increment play count error: %v", err)
+		}
+	} else {
+		incrementPlayCountByPath(c.Request.Context(), filepath.Dir(fullPath), fullPath)
+	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
@@ -479,25 +518,30 @@ func playVideoFile(c *gin.Context) {
 		respondLocalizedError(c, http.StatusNotImplemented, "当前部署模式已禁用 MPV 播放", "MPV playback is disabled")
 		return
 	}
-	req, fullPath, dirPath, err := resolveVideoPathRequestFromBody(c)
+	req, err := resolveVideoPathRequestFromBody(c)
 	if err != nil {
 		respondLocalizedError(c, http.StatusBadRequest, "视频文件路径无效", "Invalid video file path")
 		return
 	}
-	if err := ensureVideoFileExists(c, fullPath); err != nil {
+	target, err := mediaTargetFromRequest(c.Request.Context(), req)
+	if err != nil {
+		respondLocalizedError(c, http.StatusBadRequest, "视频文件路径无效", "Invalid video file path")
 		return
 	}
-	videoID := resolvePlaybackVideoID(c.Request.Context(), req.VideoID, dirPath, fullPath)
+	if !ensureMediaExists(c, target) {
+		return
+	}
+	videoID := resolvePlaybackVideoID(c.Request.Context(), req.VideoID, target)
 	dataDir := ""
 	if common.AppConfig != nil {
 		dataDir = filepath.Dir(common.AppConfig.DatabasePath)
 	}
-	if err := mpv.PlayVideo(fullPath, mpv.PlayOptions{
+	if err := mpv.PlayVideo(target.MediaPath, mpv.PlayOptions{
 		DataDir:      dataDir,
 		VideoID:      videoID,
 		StartTimeSec: req.StartTimeSec,
 	}); err != nil {
-		logging.Error("play video file error: %v", err)
+		logging.Error("play video file error: %v", storage.RedactError(err))
 		if strings.Contains(err.Error(), "mpv not found") {
 			respondLocalizedError(c, http.StatusServiceUnavailable, "未找到 MPV 播放器", err.Error())
 			return
@@ -553,20 +597,16 @@ func playVideoPlaylist(c *gin.Context) {
 			return
 		}
 
-		fullPath, _, err := resolveVideoPath(location.RelativePath, location.DirectoryRef.Path)
+		target, err := mediaTargetFromLocation(c.Request.Context(), location)
 		if err != nil {
+			logging.Error("resolve playlist media target error: %v", storage.RedactError(err))
 			respondLocalizedError(c, http.StatusBadRequest, "播放列表中的视频文件路径无效", "A video path in the playlist is invalid")
 			return
 		}
-		if _, err := os.Stat(fullPath); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				respondLocalizedError(c, http.StatusNotFound, "播放列表中的视频文件不存在", "A video file in the playlist does not exist")
-			} else {
-				logging.Error("stat playlist video file error: %v", err)
-				respondLocalizedError(c, http.StatusInternalServerError, "读取播放列表中的视频文件失败", "Failed to inspect a video file in the playlist")
-			}
+		if !ensureMediaExists(c, target) {
 			return
 		}
+		fullPath := target.MediaPath
 
 		videoID := requested.VideoID
 		items = append(items, mpv.PlaylistItem{
@@ -607,11 +647,21 @@ func revealVideoLocation(c *gin.Context) {
 		respondLocalizedError(c, http.StatusNotImplemented, "当前部署模式已禁用打开文件位置", "Desktop file revealing is disabled")
 		return
 	}
-	fullPath, _, err := resolveVideoPathFromBody(c)
+	req, err := resolveVideoPathRequestFromBody(c)
 	if err != nil {
 		respondLocalizedError(c, http.StatusBadRequest, "视频文件路径无效", "Invalid video file path")
 		return
 	}
+	target, err := mediaTargetFromRequest(c.Request.Context(), req)
+	if err != nil {
+		respondLocalizedError(c, http.StatusBadRequest, "视频文件路径无效", "Invalid video file path")
+		return
+	}
+	if target.Remote {
+		respondRemoteWriteUnsupported(c, "打开文件所在位置", "revealing the file location")
+		return
+	}
+	fullPath := target.MediaPath
 	if err := ensureVideoFileExists(c, fullPath); err != nil {
 		return
 	}
@@ -648,6 +698,10 @@ func renameVideoLocation(c *gin.Context) {
 	}
 	if loc == nil {
 		respondLocalizedError(c, http.StatusNotFound, "视频位置不存在", "Video location does not exist")
+		return
+	}
+	if loc.DirectoryRef.IsRemote() {
+		respondRemoteWriteUnsupported(c, "重命名文件", "renaming files")
 		return
 	}
 
@@ -1196,6 +1250,10 @@ func deleteVideoLocation(c *gin.Context) {
 		respondLocalizedError(c, http.StatusConflict, "目录缺失，无法删除视频", "The directory is missing; video cannot be deleted")
 		return
 	}
+	if loc.DirectoryRef.IsRemote() {
+		respondRemoteWriteUnsupported(c, "删除远程文件", "deleting files")
+		return
+	}
 
 	fullPath, _, err := resolveVideoPath(loc.RelativePath, loc.DirectoryRef.Path)
 	if err != nil {
@@ -1254,6 +1312,7 @@ func isSafeVideoFilename(name string) bool {
 
 type videoPathRequest struct {
 	VideoID      int64   `json:"video_id"`
+	LocationID   int64   `json:"location_id"`
 	Path         string  `json:"path"`
 	DirPath      string  `json:"dir_path"`
 	StartTimeSec float64 `json:"start_time"`
@@ -1268,21 +1327,20 @@ type videoPlaylistRequest struct {
 	Items []videoPlaylistItemRequest `json:"items"`
 }
 
-func resolveVideoPathFromBody(c *gin.Context) (string, string, error) {
-	_, fullPath, dirPath, err := resolveVideoPathRequestFromBody(c)
-	return fullPath, dirPath, err
-}
-
-func resolveVideoPathRequestFromBody(c *gin.Context) (videoPathRequest, string, string, error) {
+// resolveVideoPathRequestFromBody decodes a play/open/reveal body. It must not
+// resolve path/dir_path here: those are only a legacy fallback, and a remote
+// directory's Path is a "webdav://<connectionID><remotePath>" identity that
+// would never pass local-path validation. mediaTargetFromRequest does the real
+// resolution and prefers location_id.
+func resolveVideoPathRequestFromBody(c *gin.Context) (videoPathRequest, error) {
 	var req videoPathRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		return req, "", "", errors.New("invalid payload")
+		return req, errors.New("invalid payload")
 	}
 	if req.StartTimeSec < 0 {
-		return req, "", "", errors.New("invalid start_time")
+		return req, errors.New("invalid start_time")
 	}
-	fullPath, dirPath, err := resolveVideoPath(req.Path, req.DirPath)
-	return req, fullPath, dirPath, err
+	return req, nil
 }
 
 func resolveVideoPath(rawPath, rawDirPath string) (string, string, error) {
@@ -1343,40 +1401,16 @@ func incrementPlayCountByPath(ctx context.Context, dirPath, fullPath string) {
 	}
 }
 
-func resolvePlaybackVideoID(ctx context.Context, requestedID int64, dirPath, fullPath string) int64 {
+// resolvePlaybackVideoID prefers the supplied location, which is the only
+// identifier that stays valid for remote directories.
+func resolvePlaybackVideoID(ctx context.Context, requestedID int64, target *mediaTarget) int64 {
+	if target != nil && target.Location != nil && target.Location.VideoID > 0 {
+		return target.Location.VideoID
+	}
 	if requestedID > 0 {
-		video, err := dbpkg.GetVideo(ctx, requestedID)
-		if err != nil {
-			logging.Error("get playback video error: %v", err)
-		} else if video != nil {
-			if candidate, err := resolveVideoPrimaryPath(ctx, video); err == nil && sameCleanPath(candidate, fullPath) {
-				return video.ID
-			}
-		}
+		return requestedID
 	}
-
-	if strings.TrimSpace(dirPath) == "" || strings.TrimSpace(fullPath) == "" {
-		return 0
-	}
-	relPath, err := filepath.Rel(dirPath, fullPath)
-	if err != nil {
-		logging.Error("resolve relative path for playback video id: %v", err)
-		return 0
-	}
-	relPath = filepath.ToSlash(filepath.Clean(relPath))
-	if relPath == "." || strings.HasPrefix(relPath, "..") {
-		return 0
-	}
-	videoID, err := dbpkg.GetVideoIDByPath(ctx, dirPath, relPath)
-	if err != nil {
-		logging.Error("lookup playback video id by path error: %v", err)
-		return 0
-	}
-	return videoID
-}
-
-func sameCleanPath(a, b string) bool {
-	return filepath.Clean(a) == filepath.Clean(b)
+	return 0
 }
 
 func getThumbnail(c *gin.Context) {
@@ -1619,11 +1653,12 @@ func createVideoScreenshot(c *gin.Context) {
 		respondLocalizedError(c, http.StatusServiceUnavailable, "截图服务不可用", "Screenshot service is unavailable")
 		return
 	}
-	video, fullPath, _, err := resolveVideoStreamTarget(c)
+	video, target, err := resolveVideoStreamTarget(c)
 	if err != nil {
 		respondPlaybackError(c, err)
 		return
 	}
+	fullPath := target.MediaPath
 	if common.AppConfig == nil {
 		respondLocalizedError(c, http.StatusInternalServerError, "应用配置尚未加载", "Application configuration is not loaded")
 		return

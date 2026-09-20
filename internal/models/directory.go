@@ -8,6 +8,12 @@ import (
 	"time"
 )
 
+// Storage kinds persisted on Directory.Kind.
+const (
+	DirectoryKindLocal  = "local"
+	DirectoryKindWebDAV = "webdav"
+)
+
 // DirectoryScanSummary persists the result of the latest successful directory scan.
 type DirectoryScanSummary struct {
 	FilesSeen        int   `json:"files_seen,omitempty"`
@@ -66,4 +72,29 @@ type Directory struct {
 	AutoScanEnabled         bool                 `json:"auto_scan_enabled" gorm:"not null;default:true"`
 	AutoScanIntervalMinutes int                  `json:"auto_scan_interval_minutes" gorm:"not null;default:1"`
 	Enabled                 bool                 `json:"enabled" gorm:"not null;default:true"`
+
+	// Kind selects the storage backend: "" or "local" reads a local path, "webdav"
+	// reads ConnectionID's endpoint. New columns must stay at the end of the
+	// struct so the migrated column order matches migrations.
+	Kind string `json:"kind" gorm:"not null;default:''"`
+	// ConnectionID references StorageConnection for remote directories.
+	ConnectionID *int64 `json:"connection_id"`
+	// RemotePath is the collection path below the connection URL (webdav only).
+	RemotePath string `json:"remote_path" gorm:"not null;default:''"`
+}
+
+// IsRemote reports whether this directory is read over the network.
+func (d Directory) IsRemote() bool {
+	return d.StorageKind() == DirectoryKindWebDAV
+}
+
+// StorageKind returns the normalized storage kind for this directory. An empty
+// value means a local directory, which is how pre-WebDAV rows are stored.
+func (d Directory) StorageKind() string {
+	switch strings.ToLower(strings.TrimSpace(d.Kind)) {
+	case DirectoryKindWebDAV, "dav", "web_dav", "remote":
+		return DirectoryKindWebDAV
+	default:
+		return DirectoryKindLocal
+	}
 }

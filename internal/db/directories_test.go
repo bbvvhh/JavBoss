@@ -109,6 +109,7 @@ func TestDirectorySchemaIncludesLastScanSummary(t *testing.T) {
 	assertTableColumns(t, gdb, "directory", []string{
 		"id", "path", "missing", "is_delete", "created_at", "updated_at", "last_scan_summary",
 		"auto_scan_enabled", "auto_scan_interval_minutes", "enabled",
+		"kind", "connection_id", "remote_path",
 	})
 }
 
@@ -339,7 +340,11 @@ func TestMissingDirectoryContentsRemainVisible(t *testing.T) {
 	}
 }
 
-func TestUpdateDirectoryPathHidesExistingVideoLocations(t *testing.T) {
+// A directory source change (including switching a local directory to WebDAV)
+// keeps its video locations; the follow-up scan reconciles them. Hiding them up
+// front would blank out an already scraped library whenever the new source is
+// temporarily unreachable.
+func TestUpdateDirectoryPathKeepsExistingVideoLocations(t *testing.T) {
 	gdb := openTestDB(t)
 	ctx := context.Background()
 	now := time.Unix(1710000000, 0).UTC()
@@ -378,20 +383,35 @@ func TestUpdateDirectoryPathHidesExistingVideoLocations(t *testing.T) {
 		t.Fatalf("unexpected updated path: got %q want %q", updated.Path, filepath.Clean(newRoot))
 	}
 
-	var hidden models.VideoLocation
-	if err := gdb.First(&hidden, loc.ID).Error; err != nil {
-		t.Fatalf("load hidden location: %v", err)
+	// Changing the source must NOT hide existing locations up front: the next
+	// scan reconciles them, so an unreachable remote root cannot blank out an
+	// already scraped library.
+	var kept models.VideoLocation
+	if err := gdb.First(&kept, loc.ID).Error; err != nil {
+		t.Fatalf("load kept location: %v", err)
 	}
-	if !hidden.IsDelete {
-		t.Fatal("existing location should be hidden immediately after directory path changes")
+	if kept.IsDelete {
+		t.Fatal("existing location must stay visible after a directory source change")
 	}
 
 	items, err := ListVideos(ctx, 20, 0, nil, "", "recent", nil, []int64{dir.ID})
 	if err != nil {
-		t.Fatalf("list videos after hiding locations: %v", err)
+		t.Fatalf("list videos after source change: %v", err)
 	}
-	if len(items) != 0 {
-		t.Fatalf("hidden locations should not be listed before rescan: %#v", items)
+	if len(items) != 1 {
+		t.Fatalf("locations should remain listed until the rescan reconciles them: %#v", items)
+	}
+
+	// A scan that no longer finds the file still hides it.
+	if err := HideVideoLocationsByIDs(ctx, []int64{loc.ID}); err != nil {
+		t.Fatalf("hide stale location: %v", err)
+	}
+	stale, err := ListVideos(ctx, 20, 0, nil, "", "recent", nil, []int64{dir.ID})
+	if err != nil {
+		t.Fatalf("list videos after reconciliation: %v", err)
+	}
+	if len(stale) != 0 {
+		t.Fatalf("reconciled hidden locations must not be listed: %#v", stale)
 	}
 
 	recovered, err := UpsertVideoLocation(ctx, video.ID, dir.ID, "movie.mp4", now)
