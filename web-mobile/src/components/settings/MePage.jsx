@@ -22,6 +22,7 @@ const GROUPS = [
     rows: [
       { type: 'settings:player', icon: 'play', label: zh('播放设置', 'Player') },
       { type: 'settings:scrape', icon: 'wand', label: zh('刮削设置', 'Scraping') },
+      { type: 'settings:subtitles', icon: 'subtitles', label: zh('字幕', 'Subtitles') },
       { type: 'settings:downloader', icon: 'download', label: zh('下载器与任务', 'Downloader') },
     ],
   },
@@ -49,7 +50,7 @@ const countOf = (group) => group.rows.length
  * 「我的」总入口。
  *
  * 首屏刻意不放任何设置项；这里是唯一入口（顶栏右上角齿轮）。
- * 14 个入口按 5 / 3 / 4 / 2 分四组，覆盖 PC 端全部设置能力 —— 没有任何
+ * 15 个入口按 5 / 4 / 4 / 2 分四组，覆盖 PC 端全部设置能力 —— 没有任何
  * 「请去电脑端操作」的降级项，唯一例外是设计上就属于桌面端的能力
  * （mpv 播放、Web 快捷键、目录整理/删除文件），它们在子页里被明确标注为不可用，
  * 而不是悄悄消失。

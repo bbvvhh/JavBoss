@@ -8,6 +8,7 @@ import ExtensionTokenSettings from '@/components/ExtensionTokenSettings'
 import DirectoryManager from '@/components/DirectoryManager'
 import AppModal from '@/components/AppModal'
 import PlayerSettingsModal from '@/components/PlayerSettingsModal'
+import SubtitleSettingsPanel from '@/components/SubtitleSettingsPanel'
 import WebHotkeySettings from '@/components/WebHotkeySettings'
 import { downloadFFmpeg, fetchTools } from '@/api'
 import { parsePlayerHotkeys } from '@/utils/playerHotkeys'
@@ -44,6 +45,11 @@ const SETTINGS_SECTIONS = [
     id: 'player',
     title: { zh: '播放器', en: 'Player' },
     summary: { zh: '播放器快捷键与播放控制', en: 'Player shortcuts and playback controls' },
+  },
+  {
+    id: 'subtitles',
+    title: { zh: '字幕', en: 'Subtitles' },
+    summary: { zh: '在线字幕接口与一键下载', en: 'Subtitle API and batch download' },
   },
   {
     id: 'security',
@@ -1483,6 +1489,7 @@ export default function GlobalSettingsModal({
           {currentSection === 'network' && renderNetworkPanel()}
           {currentSection === 'tools' && renderToolsPanel()}
           {currentSection === 'player' && renderPlayerPanel()}
+          {currentSection === 'subtitles' && <SubtitleSettingsPanel onToast={onToast} />}
           {currentSection === 'directories' && renderDirectoriesPanel()}
           {currentSection === 'security' && (
             <div className="space-y-6">

@@ -17,6 +17,7 @@ import (
 	dbpkg "javboss/internal/db"
 	"javboss/internal/mpv"
 	"javboss/internal/runtimeconfig"
+	"javboss/internal/subtitle"
 	"javboss/internal/util"
 )
 
@@ -126,6 +127,7 @@ func updateConfig(c *gin.Context) {
 		BrowserShowHotkeyHint  *bool                 `json:"browser_player_show_hotkey_hint"`
 		PlayerHotkeys          []playerHotkeyPayload `json:"player_hotkeys"`
 		WebHotkeys             []webHotkeyPayload    `json:"web_hotkeys"`
+		SubtitleAPIURL         *string               `json:"subtitle_api_url"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondLocalizedError(c, http.StatusBadRequest, "配置请求无效", "Invalid configuration request")
@@ -483,6 +485,18 @@ func updateConfig(c *gin.Context) {
 			return
 		}
 		entries["web_hotkeys"] = string(raw)
+	}
+
+	if req.SubtitleAPIURL != nil {
+		value := strings.TrimSpace(*req.SubtitleAPIURL)
+		if value == "" {
+			entries["subtitle_api_url"] = ""
+		} else if _, err := subtitle.BuildSearchURL(value, "test"); err != nil {
+			respondLocalizedError(c, http.StatusBadRequest, "字幕接口地址无效", "Invalid subtitle API URL")
+			return
+		} else {
+			entries["subtitle_api_url"] = value
+		}
 	}
 
 	if err := dbpkg.UpsertConfig(c.Request.Context(), entries); err != nil {

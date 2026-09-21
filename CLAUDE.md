@@ -47,6 +47,10 @@ GOCACHE=$(pwd)/.gocache go test ./internal/db -run TestMigratedSchemaGormModels
 
 平台标签只有 `windows-x86_64`、`linux-x86_64`、`macos-x86_64`、`macos-arm64`。
 
+## 环境
+
+go环境未配置PATH变量，在当前项目的`.tool` 文件夹下。  
+
 ## 架构
 
 ### 进程启动顺序（`cmd/server/main.go`）
@@ -102,6 +106,19 @@ Directory 1─N VideoLocation N─1 Video ──JavID──> Jav (按 Code 唯�
 
 - `internal/mpv`：通过 IPC（unix socket / Windows 命名管道）驱动 mpv，支持复用窗口、播放列表事件、快捷键与截图。`modernz/`（OSC 皮肤、thumbfast、playlist sidebar 的 lua/conf）和 `internal/bin/`（ffprobe/mpv/ffmpeg）是随发布包一起分发的运行期资源。
 - **Client 模式**（`--server-url` 或 `config.toml` 的 `server_url`）：本机 JavBoss 不启用数据库与扫描器，只做远程 Server 的反向代理，并用本机 mpv 播放远程媒体。见 `internal/client/client.go` 包注释与 `runClientMode`。
+
+### 在线字幕（`internal/subtitle` + `internal/service/subtitle_service.go` / `subtitle_batch.go`）
+
+- 搜索接口可配置：配置键 `subtitle_api_url`，默认迅雷 `https://api-shoulei-ssl.xunlei.com/oracle/subtitle?name={keyword}`，`{keyword}` 会替换成视频番号（`jav.code`，取不到时回退文件名）。
+- 解析、SRT/ASS→WebVTT 转换、GBK/Big5 解码、文件名+时长匹配、落盘命名规则都在 `internal/subtitle`，与网络无关的部分都有表驱动测试。
+- 字幕文件落在 `<dataDir>/subtitle/<video_id>/`（只写程序自己的目录），数据库记录是 `video_subtitle`：一个视频可以有多条，`auto` 标记批量下载。
+- 网页播放时先由前端取回 `/videos/:id/subtitles/:subtitle_id/file`（后端转成 WebVTT）再做成 blob URL 挂到 video.js —— 这样 `<track>` 即使不带 Cookie 也不会静默 401；`/raw` 返回原始文件。
+- 选片规则（`subtitle.PickBest`）：文件名完全匹配 > 文件名包含 > 无名称匹配；同档内取 |字幕时长 − 视频时长| 最小的，时长为 0 的排最后。设置里的「一键下载所有 JAV 视频字幕」对每个已关联番号的视频跑这套规则，进度是内存状态，前端轮询 `GET /subtitles/batch-download`。
+- PC（`PlayerSubtitlePanel.jsx` + `SubtitleSettingsPanel.jsx`）与移动端（`SubtitleSheet.jsx` + `settings/SubtitlePage.jsx`）各有一套 UI，两端共用同一批后端接口；`utils/subtitle.js` 是两端各自拷贝的纯函数。
+- **MPV 播放同样带字幕**（`internal/mpv/subtitles.go`）：
+  - 独立进程启动用重复的 `--sub-file=`；注意 mpv 的 `--sub-files=` 重复出现是**覆盖**、且不按逗号拆分，只有单数别名 `--sub-file` 会追加（0.41 实测）。
+  - 复用窗口的 IPC 路径把最新一条放进 `loadfile` 的 `sub-files` 选项（该 options map 只吃单文件，传数组会让整条 loadfile 失败），其余用 `sub-add <file> auto`，并带重试（刚 loadfile 完 mpv 可能拒绝该命令）。
+  - 正在播放时下载字幕会自动挂上去：`service.AttachSubtitleToPlayerIfPlaying` 先用 `mpv.IsPlayingMedia` 比对 mpv 的 `path`，只在播的就是这个视频时才挂；视频卡片上的「字幕」入口走 `POST /videos/:id/subtitles/mpv`（`subtitle_id<=0` 表示关闭字幕）。
 
 ### 前端（`web/`）
 

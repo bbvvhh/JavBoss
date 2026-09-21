@@ -132,7 +132,7 @@ src/
 │   ├── ConfirmDialog.jsx # 破坏性操作确认（危险项需勾选确认）
 │   ├── PlayerPage.jsx    # 浏览器播放（video.js）+ 续播
 │   ├── form/             # 表单原语：Field / Switch / Stepper / Segmented / TextField / PickerField / PromptSheet
-│   ├── settings/         # 「我的」+ 14 个设置子页（registry.jsx 是注册表）
+│   ├── settings/         # 「我的」+ 15 个设置子页（registry.jsx 是注册表）
 │   └── LoginPage.jsx / Icons.jsx / Toast.jsx
 ├── hooks/                # useInfiniteScroll / useLongPress / useOverlayBack / useStackBack / useHideOnScroll / useAsyncData
 ├── utils/                # i18n / errors / display / browserPlayback / density / format / progress / config / javDisplay
@@ -237,7 +237,7 @@ POST /videos/locations/hide
 ## P2：设置区
 
 首屏**完全不出现设置项**，唯一入口是顶栏右上角的齿轮。齿轮推入「我的」页面
-（页面栈的一层，不是独立浮层），四组共 14 个入口：
+（页面栈的一层，不是独立浮层），四组共 15 个入口：
 
 | 组 | 入口 | 页面 |
 | --- | --- | --- |
@@ -248,6 +248,7 @@ POST /videos/locations/hide
 | 媒体库 | 收藏夹管理 | 作品 / 女优 / 片商 / 系列四类；分组 CRUD、排序、条目管理与人手排序 |
 | 播放与刮削 | 播放设置 | 本机续播开关、清空观看记录；并说明 MPV 相关项为桌面端专属 |
 | 播放与刮削 | 刮削设置 | 刮削进度汇总、各目录自动刮削开关、JAV 标签分类整理 |
+| 播放与刮削 | 字幕 | 在线字幕接口地址（默认迅雷）、接口测试、一键下载所有 JAV 视频字幕与进度 |
 | 播放与刮削 | 下载器与任务 | 基本设置、CloudDrive2（含连接测试）、任务列表（轮询 / 重试 / 取消 / 删除记录 / 新建） |
 | 系统与集成 | 全局设置 | 分页 / 排序 / 初始页面 / JAV 显示 / 网络，并列出桌面端专属项 |
 | 系统与集成 | 存储连接 | WebDAV 连接 CRUD + 连接测试（密码不回传，留空保持不变） |
@@ -379,7 +380,7 @@ POST /videos/locations/hide
 | 组件 | 作用 |
 | --- | --- |
 | `settings/registry.jsx` | 设置子页注册表（全部 `lazy()`），新增设置页只需加一行 |
-| `settings/MePage.jsx` | 「我的」：概览卡 + 4 组 14 入口 |
+| `settings/MePage.jsx` | 「我的」：概览卡 + 4 组 15 入口 |
 | `settings/SettingsPage.jsx` | 设置子页外壳：加载中 / 出错可重试 / 正常内容三态 |
 | `settings/TagManagerPage.jsx` | 视频标签与 JAV 标签共用的管理器（点标签弹抽屉、分类上移下移、多选批量） |
 | `settings/FavoriteGroupPage.jsx` | 收藏夹管理 + 收藏夹详情（两个独立的页面栈类型） |

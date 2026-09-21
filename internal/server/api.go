@@ -41,6 +41,18 @@ func RegisterRoutes(router gin.IRoutes) {
 	router.DELETE("/videos/:id/screenshots/:name", deleteVideoScreenshot)
 	router.PATCH("/videos/:id/locations/:location_id", renameVideoLocation)
 	router.DELETE("/videos/:id/locations/:location_id", deleteVideoLocation)
+	// 在线字幕：搜索、下载到 data/subtitle/、关联数据库、删除。只写 JavBoss 自有 data/ 目录。
+	router.GET("/videos/:id/subtitles", listVideoSubtitles)
+	router.POST("/videos/:id/subtitles/search", searchVideoSubtitles)
+	router.POST("/videos/:id/subtitles/download", downloadVideoSubtitle)
+	router.POST("/videos/:id/subtitles/mpv", controlVideoSubtitleInMPV)
+	router.GET("/videos/:id/subtitles/:subtitle_id/file", getVideoSubtitleFile)
+	router.GET("/videos/:id/subtitles/:subtitle_id/raw", getVideoSubtitleRaw)
+	router.DELETE("/videos/:id/subtitles/:subtitle_id", deleteVideoSubtitle)
+	router.POST("/subtitles/search", searchSubtitlesOnce)
+	router.POST("/subtitles/batch-download", startSubtitleBatchDownload)
+	router.GET("/subtitles/batch-download", getSubtitleBatchDownload)
+	router.POST("/subtitles/batch-download/cancel", cancelSubtitleBatchDownload)
 	// 只把 VideoLocation 标记为已删除，绝不碰磁盘上的文件。移动端专用（见 DESIGN.md §3.6）。
 	router.POST("/videos/locations/hide", hideVideoLocations)
 	router.POST("/videos/:id/play", incrementVideoPlayCount)

@@ -181,6 +181,68 @@ export async function resetVideoCover(videoId) {
   return requestJSON('DELETE', `/videos/${videoId}/cover`)
 }
 
+/* ---------------- 在线字幕（只写 JavBoss 自有 data/subtitle 目录） ----------------
+ *
+ * 后端把字幕下载到 <dataDir>/subtitle/<video_id>/，并把关联记录写进 javboss.db；
+ * DELETE /videos/:id/subtitles/:subtitleId 只删这个目录下的文件和那一行记录，
+ * 已核实 internal/service/subtitle_service.go 的路径来源是 dataDir，
+ * 不会碰到用户媒体目录里的任何文件。
+ */
+
+export async function fetchVideoSubtitles(videoId) {
+  const data = await requestJSON('GET', `/videos/${videoId}/subtitles`, { cache: 'no-store' })
+  return {
+    apiUrl: typeof data?.api_url === 'string' ? data.api_url : '',
+    // 番号由服务端从 jav 表读出：前端的 video 对象不一定带 jav 关联。
+    javCode: typeof data?.jav_code === 'string' ? data.jav_code : '',
+    items: Array.isArray(data?.subtitles) ? data.subtitles : [],
+  }
+}
+
+export async function searchVideoSubtitles(videoId, keyword = '') {
+  return requestJSON('POST', `/videos/${videoId}/subtitles/search`, {
+    body: { keyword: keyword || '' },
+  })
+}
+
+export async function downloadVideoSubtitle(videoId, payload) {
+  return requestJSON('POST', `/videos/${videoId}/subtitles/download`, { body: payload || {} })
+}
+
+export async function deleteVideoSubtitle(videoId, subtitleId) {
+  await requestOK('DELETE', `/videos/${videoId}/subtitles/${subtitleId}`)
+}
+
+/** 取回已经转成 WebVTT 的字幕文本，交给 video.js 作为远程字幕轨加载。 */
+export async function fetchVideoSubtitleVTT(videoId, subtitleId) {
+  const res = await request('GET', `/videos/${videoId}/subtitles/${subtitleId}/file`, {
+    cache: 'no-store',
+  })
+  if (!res.ok) throw await apiError(res)
+  return res.text()
+}
+
+export async function testSubtitleEndpoint({ keyword, apiUrl = '' } = {}) {
+  return requestJSON('POST', `/subtitles/search`, { body: { keyword, api_url: apiUrl } })
+}
+
+export async function startSubtitleBatchDownload({ overwrite = false, limit = 0 } = {}) {
+  const data = await requestJSON('POST', `/subtitles/batch-download`, {
+    body: { overwrite, limit },
+  })
+  return data?.status || null
+}
+
+export async function fetchSubtitleBatchStatus() {
+  const data = await requestJSON('GET', `/subtitles/batch-download`, { cache: 'no-store' })
+  return data?.status || null
+}
+
+export async function cancelSubtitleBatchDownload() {
+  const data = await requestJSON('POST', `/subtitles/batch-download/cancel`)
+  return data?.status || null
+}
+
 /* ---------------- 刮削设置（只写数据库） ---------------- */
 
 export async function updateVideoJavScrapeSettings(videoId, { mode = 'auto', code = '' } = {}) {

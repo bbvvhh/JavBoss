@@ -4,9 +4,9 @@ import Icon from '@/components/Icons'
 import { zh } from '@/utils/i18n'
 
 /**
- * 「我的」里 14 个入口对应的页面。
+ * 「我的」里 15 个入口对应的页面。
  *
- * 用注册表而不是在 App.jsx 里堆 14 个三元表达式：新增设置页只需要在这里加一行。
+ * 用注册表而不是在 App.jsx 里堆 15 个三元表达式：新增设置页只需要在这里加一行。
  * 并且全部走 `lazy()` —— 这 15 个页面只在用户真的点进设置时才需要，
  * 静态 import 会让首屏包凭空多出 150 KB 以上（首屏是视频列表，那才是重点）。
  *
@@ -28,6 +28,7 @@ const SETTINGS_PAGES = {
   ),
   'settings:player': lazy(() => import('@/components/settings/PlayerSettingsPage')),
   'settings:scrape': lazy(() => import('@/components/settings/ScrapeOverviewPage')),
+  'settings:subtitles': lazy(() => import('@/components/settings/SubtitlePage')),
   'settings:downloader': lazy(() => import('@/components/settings/DownloaderPage')),
   'settings:global': lazy(() => import('@/components/settings/GlobalSettingsPage')),
   'settings:storage': lazy(() => import('@/components/settings/StorageConnectionPage')),

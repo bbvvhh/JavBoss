@@ -220,6 +220,11 @@ export const useStore = create((set, get) => ({
   javRandomSeed: null,
   viewMode: 'video', // video | jav
   javTab: 'list', // list | idol | studio | series; download is accepted for legacy URLs
+  // 「字幕」管理弹窗当前打开的视频。VideoCard 出现在视频列表、JAV 列表、JAV 详情等
+  // 多条渲染链里，逐层透传一个新回调不划算，而这个状态也不进 URL。
+  subtitleManagerVideo: null,
+  openSubtitleManager: (video) => set({ subtitleManagerVideo: video || null }),
+  closeSubtitleManager: () => set({ subtitleManagerVideo: null }),
   javPage: 1,
   javPageSize: JAV_PAGE_SIZE,
   javGridColumns: JAV_GRID_COLUMNS_AUTO,

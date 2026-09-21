@@ -67,6 +67,7 @@ import SideTabs from '@/components/SideTabs'
 import TopBar from '@/components/TopBar'
 import PlayerModal from '@/components/PlayerModal'
 import VideoSettingsModal from '@/components/VideoSettingsModal'
+import VideoSubtitleModal from '@/components/VideoSubtitleModal'
 import VideoScrapeSettingsModal from '@/components/VideoScrapeSettingsModal'
 import VideoScreenshotsModal from '@/components/VideoScreenshotsModal'
 import VideoTagModal from '@/components/VideoTagModal'
@@ -285,6 +286,8 @@ export default function App() {
     createDirectory,
     updateDirectory,
     deleteDirectory,
+    subtitleManagerVideo,
+    closeSubtitleManager,
   } = useStore()
 
   const [tagModalOpen, setTagModalOpen] = useState(false)
@@ -4547,6 +4550,12 @@ export default function App() {
         onFetchPossibleCodes={handleFetchScrapePossibleCodes}
         onManualScrape={handleManualScrape}
         onLinkExistingJav={handleLinkExistingJav}
+      />
+
+      <VideoSubtitleModal
+        video={subtitleManagerVideo}
+        onClose={closeSubtitleManager}
+        onToast={showCenterToast}
       />
 
       <JavSettingsModal

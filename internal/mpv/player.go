@@ -319,6 +319,11 @@ func (s *playerSession) playVideoLocked(path string, options PlayOptions) error 
 	if err := runIPCCommand(s.ipcPath, loadCommand); err != nil {
 		return err
 	}
+	// The loadfile options already carry the newest subtitle; attach the older
+	// ones as extra tracks (sub-add "auto" keeps the current selection).
+	if err := addRemainingSubtitles(s.ipcPath, options); err != nil {
+		logging.Error("attach extra mpv subtitles failed: %v", err)
+	}
 	if !shouldRestoreWindowBeforeLoad() {
 		time.Sleep(darwinAfterLoadWindowRestoreDelay)
 	}
@@ -474,6 +479,7 @@ func buildCommandArgs(path string, options PlayOptions, ipcPath string) (*exec.C
 	} else if hotkeyHint != "" {
 		args = append(args, "--osd-playing-msg="+hotkeyHint)
 	}
+	args = append(args, buildSubtitleCLIArgs(options)...)
 	args = append(args, buildPlaybackStartArgs(options)...)
 	args = append(args, "--input-conf="+inputConfPath)
 	if strings.TrimSpace(path) != "" {
@@ -593,6 +599,11 @@ func buildPlaylistLoadFileCommand(item PlaylistItem, mode string) ([]any, error)
 	}
 	if item.Options.StartTimeSec > 0 {
 		options["start"] = strconv.FormatFloat(item.Options.StartTimeSec, 'f', -1, 64)
+	}
+	// Per-file subtitles: JavBoss never writes next to the user's videos, so the
+	// downloaded files must be attached explicitly for every playlist entry.
+	if subtitleFiles, ok := subtitleLoadFileOptions(item.Options); ok {
+		options["sub-files"] = subtitleFiles
 	}
 	return []any{"loadfile", item.Path, mode, -1, options}, nil
 }

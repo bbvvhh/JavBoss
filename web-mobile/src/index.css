@@ -119,6 +119,27 @@ button {
   height: 100%;
   background: #000;
 }
+
+/* 字幕只显示文字，不要黑底。
+   video.js 用 vtt.js 渲染 cue，会在内层 div 上写死行内
+   `background-color: rgba(0,0,0,0.8)`，普通规则覆盖不了行内样式，必须 !important；
+   iOS Safari 走原生渲染（video.js 的 featuresNativeTextTracks），由 ::cue 生效。 */
+.stage .vjs-text-track-cue,
+.stage .vjs-text-track-cue > div {
+  background-color: transparent !important;
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 0.95),
+    0 0 4px rgba(0, 0, 0, 0.85),
+    0 0 8px rgba(0, 0, 0, 0.6);
+}
+
+video::cue {
+  background-color: transparent;
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 0.95),
+    0 0 4px rgba(0, 0, 0, 0.85),
+    0 0 8px rgba(0, 0, 0, 0.6);
+}
 .stage .video-js .vjs-big-play-button {
   top: 50%;
   left: 50%;

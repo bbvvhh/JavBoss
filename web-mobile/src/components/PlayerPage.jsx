@@ -1,9 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import videojs from 'video.js'
 import 'video.js/dist/video-js.css'
 
-import { fetchPlaybackInfo, incrementVideoPlayCount } from '@/api'
+import {
+  fetchPlaybackInfo,
+  fetchVideoSubtitleVTT,
+  fetchVideoSubtitles,
+  incrementVideoPlayCount,
+} from '@/api'
+import BottomSheet from '@/components/BottomSheet'
 import Icon from '@/components/Icons'
+import SubtitleSheet from '@/components/SubtitleSheet'
 import { selectPlaybackSource, startBrowserPlayback } from '@/utils/browserPlayback'
 import { getVideoDisplayName, parseVideoFingerprint, formatBytes } from '@/utils/display'
 import { formatDuration, formatReleaseDate } from '@/utils/format'
@@ -15,9 +22,114 @@ const SAVE_INTERVAL_MS = 5000
 
 export default function PlayerPage({ video, onClose }) {
   const stageRef = useRef(null)
+  const playerRef = useRef(null)
+  // 已挂到 video.js 上的字幕轨（含 blob URL，销毁时必须回收）。
+  const subtitleTracksRef = useRef([])
+  const activeSubtitleRef = useRef(null)
+  const applySubtitleRef = useRef(null)
   const [status, setStatus] = useState('loading')
   const [errorText, setErrorText] = useState('')
   const [resumeAt, setResumeAt] = useState(() => readProgress(video?.id))
+  const [subtitles, setSubtitles] = useState([])
+  const [subtitlesLoading, setSubtitlesLoading] = useState(false)
+  const [activeSubtitleId, setActiveSubtitleId] = useState(null)
+  const [subtitleSheetOpen, setSubtitleSheetOpen] = useState(false)
+  const [subtitleError, setSubtitleError] = useState('')
+  const [subtitleJavCode, setSubtitleJavCode] = useState('')
+
+  // 默认搜索关键词永远是 jav 表的 code（番号），本地文件名只用于
+  // 「哪份字幕更合适」的匹配。优先用服务端解析出的 jav_code。
+  const defaultSubtitleKeyword = useMemo(() => {
+    const fromServer = String(subtitleJavCode || '').trim()
+    if (fromServer) return fromServer
+    const jav = video?.jav || video?.locations?.[0]?.jav || null
+    return String(jav?.code || '').trim()
+  }, [subtitleJavCode, video])
+
+  const removeSubtitleTracks = useCallback(() => {
+    const player = playerRef.current
+    for (const entry of subtitleTracksRef.current) {
+      try {
+        if (player && !player.isDisposed()) player.removeRemoteTextTrack(entry.element)
+      } catch {
+        /* 播放器已销毁，忽略 */
+      }
+      if (entry.blobUrl) URL.revokeObjectURL(entry.blobUrl)
+    }
+    subtitleTracksRef.current = []
+  }, [])
+
+  // 字幕文本先由前端取回、再做成 blob URL 交给 video.js：这样即使 <track>
+  // 的请求不带 Cookie，也不会因为 401 而静默失败。
+  const applyActiveSubtitle = useCallback(async () => {
+    const player = playerRef.current
+    if (!player || player.isDisposed()) return
+    removeSubtitleTracks()
+    const target = activeSubtitleRef.current
+    if (!target || !video?.id) return
+    try {
+      const text = await fetchVideoSubtitleVTT(video.id, target.id)
+      if (player.isDisposed() || activeSubtitleRef.current?.id !== target.id) return
+      const blobUrl = URL.createObjectURL(new Blob([text], { type: 'text/vtt' }))
+      const element = player.addRemoteTextTrack(
+        {
+          kind: 'subtitles',
+          label: String(target.title || target.filename || zh('字幕', 'Subtitles')),
+          srclang: 'zh',
+          src: blobUrl,
+          default: true,
+        },
+        false
+      )
+      subtitleTracksRef.current.push({ element, blobUrl })
+      if (element?.track) element.track.mode = 'showing'
+      setSubtitleError('')
+    } catch (error) {
+      // 切换视频时旧请求可能晚到，只有它仍是当前选中项时才报错。
+      if (player.isDisposed() || activeSubtitleRef.current?.id !== target.id) return
+      setSubtitleError(getErrorMessage(error))
+    }
+  }, [removeSubtitleTracks, video?.id])
+
+  useEffect(() => {
+    applySubtitleRef.current = applyActiveSubtitle
+  }, [applyActiveSubtitle])
+
+  useEffect(() => {
+    activeSubtitleRef.current = subtitles.find((item) => item.id === activeSubtitleId) || null
+    applyActiveSubtitle()
+  }, [activeSubtitleId, subtitles, applyActiveSubtitle])
+
+  // 打开视频时读取本地字幕：有就直接挂上最新的一条，可在字幕抽屉里切换或关闭。
+  useEffect(() => {
+    if (!video?.id) {
+      setSubtitles([])
+      setActiveSubtitleId(null)
+      setSubtitleJavCode('')
+      return undefined
+    }
+    let cancelled = false
+    setSubtitlesLoading(true)
+    setSubtitleJavCode('')
+    fetchVideoSubtitles(video.id)
+      .then((data) => {
+        if (cancelled) return
+        setSubtitles(data.items)
+        setSubtitleJavCode(data.javCode || '')
+        const latest = data.items[data.items.length - 1]
+        setActiveSubtitleId(latest ? latest.id : null)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setSubtitles([])
+      })
+      .finally(() => {
+        if (!cancelled) setSubtitlesLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [video?.id])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -40,6 +152,8 @@ export default function PlayerPage({ video, onClose }) {
       playsinline: true,
       playbackRates: [0.5, 1, 1.25, 1.5, 2],
     })
+    playerRef.current = player
+    applySubtitleRef.current?.()
 
     const persist = () => {
       const current = player.currentTime()
@@ -97,13 +211,15 @@ export default function PlayerPage({ video, onClose }) {
       player.off('timeupdate', onTimeUpdate)
       player.off('pause', onPause)
       player.off('ended', onEnded)
+      removeSubtitleTracks()
+      playerRef.current = null
       try {
         player.dispose()
       } catch {
         /* 卸载竞态，忽略 */
       }
     }
-  }, [video, resumeAt])
+  }, [video, resumeAt, removeSubtitleTracks])
 
   if (!video) return null
 
@@ -133,6 +249,17 @@ export default function PlayerPage({ video, onClose }) {
           <Icon name="back" size={20} />
         </button>
         <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold">{displayName}</h2>
+        <button
+          type="button"
+          onClick={() => setSubtitleSheetOpen(true)}
+          aria-label={zh('在线字幕', 'Online subtitles')}
+          className={`flex h-9 flex-none items-center gap-1 rounded-[10px] px-2 text-[12px] active:bg-white/10 ${
+            subtitles.length ? 'text-brand-ink' : 'text-zinc-300'
+          }`}
+        >
+          <Icon name="subtitles" size={18} />
+          {subtitles.length ? <span>{subtitles.length}</span> : null}
+        </button>
       </header>
 
       <div ref={stageRef} className="stage relative aspect-video w-full flex-none bg-black" />
@@ -155,6 +282,20 @@ export default function PlayerPage({ video, onClose }) {
             <div className="mt-3 flex items-start gap-2 rounded-[10px] border border-red-200 bg-red-50 px-3 py-2.5 text-[12px] leading-relaxed text-red-700">
               <Icon name="ban" size={15} className="mt-[1px] flex-none" />
               <span>{errorText}</span>
+            </div>
+          ) : null}
+
+          {subtitleError ? (
+            <div className="mt-3 flex items-start gap-2 rounded-[10px] border border-amber-200 bg-amber-50 px-3 py-2.5 text-[12px] leading-relaxed text-amber-800">
+              <Icon name="subtitles" size={15} className="mt-[1px] flex-none" />
+              <span className="flex-1">{subtitleError}</span>
+              <button
+                type="button"
+                onClick={() => setSubtitleSheetOpen(true)}
+                className="flex-none font-semibold underline"
+              >
+                {zh('字幕', 'Subtitles')}
+              </button>
             </div>
           ) : null}
 
@@ -228,11 +369,28 @@ export default function PlayerPage({ video, onClose }) {
 
         <p className="px-3.5 py-4 text-[11px] leading-relaxed text-zinc-400">
           {zh(
-            '移动端使用浏览器播放。JavBoss 只读取视频文件，不会修改或删除它们。',
-            'Playback runs in your browser. JavBoss only reads your video files; it never modifies or deletes them.'
+            '移动端使用浏览器播放。JavBoss 只读取视频文件，不会修改或删除它们。字幕文件保存在 JavBoss 自己的 data/subtitle 目录里。',
+            'Playback runs in your browser. JavBoss only reads your video files; it never modifies or deletes them. Subtitles are stored inside JavBoss’ own data/subtitle directory.'
           )}
         </p>
       </div>
+
+      <BottomSheet
+        open={subtitleSheetOpen}
+        title={zh('在线字幕', 'Online subtitles')}
+        height="78vh"
+        onClose={() => setSubtitleSheetOpen(false)}
+      >
+        <SubtitleSheet
+          video={video}
+          defaultKeyword={defaultSubtitleKeyword}
+          subtitles={subtitles}
+          loading={subtitlesLoading}
+          activeSubtitleId={activeSubtitleId}
+          onSelectSubtitle={setActiveSubtitleId}
+          onSubtitlesChange={setSubtitles}
+        />
+      </BottomSheet>
     </div>
   )
 }

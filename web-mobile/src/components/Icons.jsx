@@ -38,6 +38,12 @@ const PATHS = {
     </>
   ),
   filter: <path d="M4 6h16M7 12h10M10 18h4" {...STROKE} strokeWidth={2} />,
+  subtitles: (
+    <>
+      <rect x="3.5" y="5" width="17" height="14" rx="2.5" {...STROKE} />
+      <path d="M7 10h4.5M7 14h7M14.5 10H17" {...STROKE} />
+    </>
+  ),
   layers: (
     <path
       d="M12 3.5 3.5 8 12 12.5 20.5 8 12 3.5ZM3.5 12.5 12 17l8.5-4.5M3.5 16.5 12 21l8.5-4.5"

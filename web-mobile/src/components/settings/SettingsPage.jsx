@@ -4,7 +4,7 @@ import { zh } from '@/utils/i18n'
 /**
  * 设置子页的统一外壳：加载中 / 出错可重试 / 正常内容三态。
  *
- * 所有设置页共用一个骨架，避免 14 个页面各自实现一遍 loading 和 error —— 那样
+ * 所有设置页共用一个骨架，避免每个页面各自实现一遍 loading 和 error —— 那样
  * 一定会有的页面忘了显示错误，用户看到空白页却不知道发生了什么。
  */
 export default function SettingsPage({

@@ -6,6 +6,7 @@ import LocalOfferOutlinedIcon from '@mui/icons-material/LocalOfferOutlined'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import ManageSearchIcon from '@mui/icons-material/ManageSearch'
+import SubtitlesRoundedIcon from '@mui/icons-material/SubtitlesRounded'
 import { revealVideoLocation } from '@/api'
 import { useStore } from '@/store'
 import { displayHostPath, hostPathsEnabled } from '@/utils/hostPath'
@@ -37,6 +38,7 @@ export default function VideoCard({
   onTagClick,
 }) {
   const useHostPaths = useStore((state) => hostPathsEnabled(state.config))
+  const openSubtitleManager = useStore((state) => state.openSubtitleManager)
   const [editAnchorEl, setEditAnchorEl] = useState(null)
   const displayName = getVideoDisplayName(video)
   const durationSec = Number(video?.duration_sec)
@@ -285,6 +287,16 @@ export default function VideoCard({
               <ManageSearchIcon fontSize="inherit" />
             </IconButton>
           </Tooltip>
+          <Tooltip title={zh('在线字幕', 'Online subtitles')}>
+            <IconButton
+              size="small"
+              onClick={() => openSubtitleManager?.(video)}
+              aria-label={zh('在线字幕', 'Online subtitles')}
+              className="h-6 w-6"
+            >
+              <SubtitlesRoundedIcon fontSize="inherit" />
+            </IconButton>
+          </Tooltip>
           <Popover
             open={Boolean(editAnchorEl)}
             anchorEl={editAnchorEl}
@@ -294,6 +306,17 @@ export default function VideoCard({
             transformOrigin={{ vertical: 'center', horizontal: 'left' }}
           >
             <div className="flex min-w-[112px] flex-col p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  closeEditMenu()
+                  openSubtitleManager?.(video)
+                }}
+                className="inline-flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50"
+              >
+                <SubtitlesRoundedIcon className="h-4 w-4" fontSize="inherit" />
+                <span>{zh('在线字幕', 'Online subtitles')}</span>
+              </button>
               <button
                 type="button"
                 onClick={handleRename}

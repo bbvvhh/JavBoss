@@ -372,6 +372,100 @@ export async function deleteVideoScreenshot(videoId, name) {
   }
 }
 
+/* ---------------- 在线字幕（只写 JavBoss 自有 data/ 目录） ---------------- */
+
+export async function fetchVideoSubtitles(videoId) {
+  const res = await apiFetch(`/videos/${videoId}/subtitles`, { cache: 'no-store' })
+  if (!res.ok) throw await apiError(res)
+  const data = await res.json()
+  return {
+    apiUrl: typeof data?.api_url === 'string' ? data.api_url : '',
+    // 番号由服务端从 jav 表读出：前端的 video 对象不一定带 jav 关联。
+    javCode: typeof data?.jav_code === 'string' ? data.jav_code : '',
+    items: Array.isArray(data?.subtitles) ? data.subtitles : [],
+  }
+}
+
+export async function searchVideoSubtitles(videoId, keyword = '') {
+  const res = await apiFetch(`/videos/${videoId}/subtitles/search`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ keyword }),
+  })
+  if (!res.ok) throw await apiError(res)
+  return res.json()
+}
+
+export async function downloadVideoSubtitle(videoId, payload) {
+  const res = await apiFetch(`/videos/${videoId}/subtitles/download`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify(payload || {}),
+  })
+  if (!res.ok) throw await apiError(res)
+  return res.json()
+}
+
+export async function deleteVideoSubtitle(videoId, subtitleId) {
+  const res = await apiFetch(`/videos/${videoId}/subtitles/${subtitleId}`, { method: 'DELETE' })
+  if (!res.ok) throw await apiError(res)
+}
+
+/** 把一条已下载字幕挂到正在播放的 MPV 窗口；subtitleId <= 0 表示关闭 MPV 字幕。 */
+export async function controlVideoSubtitleInMPV(videoId, subtitleId = 0) {
+  const res = await apiFetch(`/videos/${videoId}/subtitles/mpv`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ subtitle_id: Number(subtitleId) || 0 }),
+  })
+  if (!res.ok) throw await apiError(res)
+  return res.json()
+}
+
+/** 取回已经转成 WebVTT 的字幕文本，交给 video.js 作为远程字幕轨加载。 */
+export async function fetchVideoSubtitleVTT(videoId, subtitleId) {
+  const res = await apiFetch(`/videos/${videoId}/subtitles/${subtitleId}/file`, {
+    cache: 'no-store',
+  })
+  if (!res.ok) throw await apiError(res)
+  return res.text()
+}
+
+export async function testSubtitleEndpoint({ keyword, apiUrl = '' } = {}) {
+  const res = await apiFetch('/subtitles/search', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ keyword, api_url: apiUrl }),
+  })
+  if (!res.ok) throw await apiError(res)
+  return res.json()
+}
+
+export async function startSubtitleBatchDownload({ overwrite = false, limit = 0 } = {}) {
+  const res = await apiFetch('/subtitles/batch-download', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ overwrite, limit }),
+  })
+  if (!res.ok) throw await apiError(res)
+  const data = await res.json()
+  return data?.status || null
+}
+
+export async function fetchSubtitleBatchStatus() {
+  const res = await apiFetch('/subtitles/batch-download', { cache: 'no-store' })
+  if (!res.ok) throw await apiError(res)
+  const data = await res.json()
+  return data?.status || null
+}
+
+export async function cancelSubtitleBatchDownload() {
+  const res = await apiFetch('/subtitles/batch-download/cancel', { method: 'POST' })
+  if (!res.ok) throw await apiError(res)
+  const data = await res.json()
+  return data?.status || null
+}
+
 export async function updateVideoCover(videoId, screenshotName) {
   const res = await apiFetch(`/videos/${videoId}/cover`, {
     method: 'PUT',
@@ -383,7 +477,6 @@ export async function updateVideoCover(videoId, screenshotName) {
   }
   return res.json()
 }
-
 export async function resetVideoCover(videoId) {
   const res = await apiFetch(`/videos/${videoId}/cover`, { method: 'DELETE' })
   if (!res.ok) {

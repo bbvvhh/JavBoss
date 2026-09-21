@@ -1,8 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
+import SubtitlesRoundedIcon from '@mui/icons-material/SubtitlesRounded'
 import videojs from 'video.js'
 import 'video.js/dist/video-js.css'
-import { createVideoScreenshot, fetchPlaybackInfo } from '@/api'
+import {
+  createVideoScreenshot,
+  fetchPlaybackInfo,
+  fetchVideoSubtitleVTT,
+  fetchVideoSubtitles,
+} from '@/api'
 import { getVideoDisplayName } from '@/utils/display'
 import {
   PLAYER_HOTKEY_ACTIONS,
@@ -12,6 +18,7 @@ import {
 } from '@/utils/playerHotkeys'
 import { zh } from '@/utils/i18n'
 import AppModal from '@/components/AppModal'
+import PlayerSubtitlePanel from '@/components/PlayerSubtitlePanel'
 import { getErrorMessage } from '@/utils/errors'
 import { selectPlaybackSource, startBrowserPlayback } from '@/utils/browserPlayback'
 
@@ -37,11 +44,21 @@ export default function PlayerModal({
   const hotkeyMapRef = useRef(new Map())
   const screenshotInFlightRef = useRef(false)
   const screenshotNoticeTimerRef = useRef(null)
+  // 已挂到 video.js 上的字幕轨（含 blob URL，销毁时必须回收）。
+  const subtitleTracksRef = useRef([])
+  const activeSubtitleRef = useRef(null)
+  const applySubtitleRef = useRef(null)
   const [playbackInfo, setPlaybackInfo] = useState(null)
   const [playbackError, setPlaybackError] = useState('')
   const [loadingPlayback, setLoadingPlayback] = useState(false)
   const [screenshotNotice, setScreenshotNotice] = useState(false)
   const [hotkeyHintVisible, setHotkeyHintVisible] = useState(false)
+  const [subtitles, setSubtitles] = useState([])
+  const [subtitlesLoading, setSubtitlesLoading] = useState(false)
+  const [subtitleJavCode, setSubtitleJavCode] = useState('')
+  const [activeSubtitleId, setActiveSubtitleId] = useState(null)
+  const [subtitlePanelOpen, setSubtitlePanelOpen] = useState(false)
+  const [subtitleError, setSubtitleError] = useState('')
   const normalizedHotkeys = useMemo(() => parsePlayerHotkeys(hotkeys), [hotkeys])
   const hotkeyHintLines = useMemo(() => {
     const lines = normalizedHotkeys.map((item) => {
@@ -68,6 +85,103 @@ export default function PlayerModal({
   const selectedSource = useMemo(() => {
     return selectPlaybackSource(playbackInfo, document.createElement('video'))
   }, [playbackInfo])
+
+  // 默认搜索关键词永远是 jav 表的 code（番号），本地文件名只用于「哪份字幕更合适」的匹配。
+  // 优先级：服务端解析出的 jav_code > video 对象上带的 jav 关联。
+  const defaultSubtitleKeyword = useMemo(() => {
+    const fromServer = String(subtitleJavCode || '').trim()
+    if (fromServer) return fromServer
+    return String(video?.jav?.code || video?.locations?.[0]?.jav?.code || '').trim()
+  }, [subtitleJavCode, video])
+
+  const removeSubtitleTracks = useCallback(() => {
+    const player = playerRef.current
+    for (const entry of subtitleTracksRef.current) {
+      try {
+        if (player && !player.isDisposed()) player.removeRemoteTextTrack(entry.element)
+      } catch {
+        // 播放器可能已经销毁，忽略。
+      }
+      if (entry.blobUrl) URL.revokeObjectURL(entry.blobUrl)
+    }
+    subtitleTracksRef.current = []
+  }, [])
+
+  // 字幕文本由前端取回后做成 blob URL 再交给 video.js：这样即使 <track> 的
+  // 请求不带 Cookie（跨源模式），也不会因为 401 而静默失败。
+  const applyActiveSubtitle = useCallback(async () => {
+    const player = playerRef.current
+    if (!player || player.isDisposed()) return
+    removeSubtitleTracks()
+    const target = activeSubtitleRef.current
+    if (!target || !video?.id) return
+    try {
+      const text = await fetchVideoSubtitleVTT(video.id, target.id)
+      if (player.isDisposed() || activeSubtitleRef.current?.id !== target.id) return
+      const blobUrl = URL.createObjectURL(new Blob([text], { type: 'text/vtt' }))
+      const element = player.addRemoteTextTrack(
+        {
+          kind: 'subtitles',
+          label: String(target.title || target.filename || zh('字幕', 'Subtitles')),
+          srclang: 'zh',
+          src: blobUrl,
+          default: true,
+        },
+        false
+      )
+      subtitleTracksRef.current.push({ element, blobUrl })
+      if (element?.track) element.track.mode = 'showing'
+      setSubtitleError('')
+    } catch (error) {
+      // 切换视频时旧请求可能晚到，只有它仍是当前选中项时才报错。
+      if (player.isDisposed() || activeSubtitleRef.current?.id !== target.id) return
+      setSubtitleError(getErrorMessage(error))
+    }
+  }, [removeSubtitleTracks, video?.id])
+
+  useEffect(() => {
+    applySubtitleRef.current = applyActiveSubtitle
+  }, [applyActiveSubtitle])
+
+  useEffect(() => {
+    activeSubtitleRef.current = subtitles.find((item) => item.id === activeSubtitleId) || null
+    applyActiveSubtitle()
+  }, [activeSubtitleId, subtitles, applyActiveSubtitle])
+
+  // 打开视频时读取本地字幕：有就直接挂上最新的一条，用户可在面板里切换或关闭。
+  useEffect(() => {
+    if (!video?.id) {
+      setSubtitles([])
+      setActiveSubtitleId(null)
+      setSubtitlePanelOpen(false)
+      setSubtitleError('')
+      setSubtitleJavCode('')
+      return undefined
+    }
+    let cancelled = false
+    setSubtitlesLoading(true)
+    setSubtitleError('')
+    setSubtitleJavCode('')
+    fetchVideoSubtitles(video.id)
+      .then((data) => {
+        if (cancelled) return
+        setSubtitles(data.items)
+        setSubtitleJavCode(data.javCode || '')
+        const latest = data.items[data.items.length - 1]
+        setActiveSubtitleId(latest ? latest.id : null)
+      })
+      .catch((error) => {
+        if (cancelled) return
+        setSubtitleError(getErrorMessage(error))
+      })
+      .finally(() => {
+        if (cancelled) return
+        setSubtitlesLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [video?.id])
 
   useEffect(() => {
     setHotkeyHintVisible(false)
@@ -287,7 +401,10 @@ export default function PlayerModal({
         onPlaybackErrorRef.current?.(message)
       }
     )
-    player.ready(focusPlayer)
+    player.ready(() => {
+      focusPlayer()
+      applySubtitleRef.current?.()
+    })
     player.on('fullscreenchange', focusPlayer)
     player.on('volumechange', handleVolumeChange)
 
@@ -296,10 +413,11 @@ export default function PlayerModal({
       window.removeEventListener('keydown', handleKeyDown, true)
       player.off('fullscreenchange', focusPlayer)
       player.off('volumechange', handleVolumeChange)
+      removeSubtitleTracks()
       player.dispose()
       playerRef.current = null
     }
-  }, [video, startTime, selectedSource, playbackInfo, loadingPlayback])
+  }, [video, startTime, selectedSource, playbackInfo, loadingPlayback, removeSubtitleTracks])
 
   if (!video) return null
 
@@ -324,6 +442,21 @@ export default function PlayerModal({
           </h2>
           <button
             type="button"
+            aria-label={zh('在线字幕', 'Online subtitles')}
+            title={zh('在线字幕', 'Online subtitles')}
+            aria-pressed={subtitlePanelOpen}
+            onClick={() => setSubtitlePanelOpen((open) => !open)}
+            className={`inline-flex h-5 shrink-0 items-center gap-1 rounded-full px-1.5 text-[10px] font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+              subtitlePanelOpen
+                ? 'bg-blue-600 text-white'
+                : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800'
+            }`}
+          >
+            <SubtitlesRoundedIcon sx={{ fontSize: 14 }} />
+            {subtitles.length > 0 ? <span>{subtitles.length}</span> : null}
+          </button>
+          <button
+            type="button"
             aria-label={zh('关闭', 'Close')}
             title={zh('关闭', 'Close')}
             onClick={onClose}
@@ -333,11 +466,16 @@ export default function PlayerModal({
           </button>
         </header>
         <div className="player-shell relative w-full bg-black">
-          {screenshotNotice || hotkeyHintVisible ? (
+          {screenshotNotice || hotkeyHintVisible || subtitleError ? (
             <div className="pointer-events-none absolute left-3 top-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-col items-start gap-2">
               {screenshotNotice ? (
                 <div className="rounded bg-black/75 px-3 py-1.5 text-sm font-medium text-white shadow">
                   {zh('截图成功', 'Screenshot saved')}
+                </div>
+              ) : null}
+              {subtitleError ? (
+                <div className="max-w-full rounded bg-red-600/90 px-3 py-1.5 text-xs text-white shadow">
+                  {subtitleError}
                 </div>
               ) : null}
               {hotkeyHintVisible ? (
@@ -363,6 +501,21 @@ export default function PlayerModal({
               ) : null}
             </>
           )}
+          {subtitlePanelOpen ? (
+            <div className="absolute right-0 top-0 z-20 h-full w-[330px] max-w-full overflow-hidden rounded-l-md border-l border-zinc-200 shadow-2xl">
+              <PlayerSubtitlePanel
+                key={video.id}
+                video={video}
+                defaultKeyword={defaultSubtitleKeyword}
+                subtitles={subtitles}
+                loading={subtitlesLoading}
+                activeSubtitleId={activeSubtitleId}
+                onSelectSubtitle={setActiveSubtitleId}
+                onSubtitlesChange={setSubtitles}
+                onClose={() => setSubtitlePanelOpen(false)}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
     </AppModal>

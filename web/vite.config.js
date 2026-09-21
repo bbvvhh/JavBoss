@@ -18,6 +18,7 @@ export default defineConfig({
       '/healthz': backendProxy(),
       '/auth': backendProxy(),
       '/videos': backendProxy(),
+      '/subtitles': backendProxy(),
       '/tags': backendProxy(),
       '/sync': backendProxy(),
       '/directories': backendProxy(),
