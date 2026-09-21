@@ -1,6 +1,8 @@
 import { useState } from 'react'
 
+import { useStore } from '@/store'
 import { formatReleaseDate } from '@/utils/format'
+import { idolDisplayName, javDisplayPrefs, javTagDisplayName } from '@/utils/javDisplay'
 import { zh } from '@/utils/i18n'
 
 /**
@@ -11,14 +13,24 @@ import { zh } from '@/utils/i18n'
  *
  * 卡片整体只做一件事：打开作品详情。「跳转到某位女优/片商/系列的影片」
  * 这类动作放在详情页里，避免可交互元素嵌套。
+ *
+ * 显示哪些行由全局设置决定（不显示演员 / 标签 / 系列、优先中文名、简体标签），
+ * 与 PC 端共用同一批配置键。
  */
 export default function JavWorkCard({ item, density = 'standard', onOpen }) {
   const [failed, setFailed] = useState(false)
+  const config = useStore((state) => state.config)
+  const prefs = javDisplayPrefs(config)
 
   const compact = density === 'compact'
   const large = density === 'large'
   const code = String(item?.code || '').trim()
-  const idols = (item?.idols || []).map((idol) => idol?.name).filter(Boolean)
+  const idols = prefs.hideIdols
+    ? []
+    : (item?.idols || [])
+        .map((idol) => idolDisplayName(idol, prefs.preferChineseName))
+        .filter(Boolean)
+  const tags = prefs.hideTags ? [] : item?.tags || []
 
   return (
     <div
@@ -82,7 +94,7 @@ export default function JavWorkCard({ item, density = 'standard', onOpen }) {
                 formatReleaseDate(item?.release_unix),
                 item?.duration_min ? `${item.duration_min} ${zh('分钟', 'min')}` : '',
                 item?.studio?.name,
-                item?.series?.name,
+                prefs.hideSeries ? '' : item?.series?.name,
                 item?.is_uncensored === true ? zh('无码', 'Uncensored') : '',
               ]
                 .filter(Boolean)
@@ -102,17 +114,17 @@ export default function JavWorkCard({ item, density = 'standard', onOpen }) {
               </div>
             ) : null}
 
-            {(item?.tags || []).length ? (
+            {tags.length ? (
               <div className="fade-clip mt-1.5 flex h-[17px] items-center gap-1.5 overflow-hidden">
                 <span className="flex-none rounded bg-zinc-100 px-[5px] text-[10px] font-bold leading-[15px] text-zinc-400">
                   {zh('标签', 'Tags')}
                 </span>
-                {item.tags.map((tag) => (
+                {tags.map((tag) => (
                   <span
                     key={tag.id ?? tag.name}
                     className="h-[15px] flex-none rounded bg-[#fdba74] px-[5px] text-[10px] font-bold leading-[15px] text-zinc-900"
                   >
-                    {tag.name}
+                    {javTagDisplayName(tag, prefs.simplifiedTags)}
                   </span>
                 ))}
               </div>

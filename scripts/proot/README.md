@@ -10,7 +10,8 @@
 | --- | --- |
 | `javboss` | 主程序（静态链接 aarch64，release 模式） |
 | `start.sh` | 启动脚本，已设好本环境需要的开关 |
-| `web/dist/` | 前端静态资源（后端直接托管） |
+| `web/dist/` | PC 版前端静态资源（后端直接托管） |
+| `web-mobile/dist/` | **手机版前端**，挂在 `/m/` 下；手机浏览器打开根路径会自动切过去 |
 | `internal/bin/ffmpeg`、`internal/bin/ffprobe` | arm64 版，用于探测/截图/转码 |
 | `modernz/` | mpv 的 OSC 皮肤（本包默认禁用 mpv，备用） |
 | `config.toml` | 默认端口 8655 |
@@ -65,6 +66,11 @@ cd javboss-<版本>-linux-arm64-proot
 
 启动后在**手机浏览器**打开 <http://127.0.0.1:8655>。
 proot 不隔离网络命名空间，这个地址就是 Android 自己的 loopback，不需要端口转发。
+
+打开根路径时后端会按 UA 自动把你送到**手机版界面**（`/m/`），这是这一端最常用的界面。
+想强制用电脑版：`http://127.0.0.1:8655/?desktop=1`；想改回手机版：`http://127.0.0.1:8655/?mobile=1`
+（两个参数都会记住选择，存进 `javboss_ui` Cookie）。手机版的界面说明见仓库里的
+`web-mobile/README.md`。
 
 在 JavBoss 里添加媒体目录时，填 **proot 内的路径**，例如 `/sdcard/Movies`。
 

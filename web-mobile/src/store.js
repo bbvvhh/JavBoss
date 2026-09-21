@@ -4,11 +4,15 @@ import {
   fetchVideos,
   fetchTags,
   fetchConfig,
+  fetchDirectories,
+  fetchJavs,
   fetchJavFilterOptions,
   fetchJavFavoriteGroups,
+  updateConfig,
 } from '@/api'
 import { normalizeVideoSort } from '@/constants/video'
 import { normalizeJavSort, normalizeJavDensity } from '@/constants/jav'
+import { initialViewMode } from '@/utils/javDisplay'
 import {
   DEFAULT_DENSITY,
   readStoredDensity,
@@ -179,6 +183,11 @@ export const useStore = create((set, get) => ({
       if (Number.isFinite(size) && size > 0) patch.pageSize = Math.min(size, 500)
       if (sort) patch.sort = sort
       patch.hideJav = String(cfg?.video_hide_jav || '').toLowerCase() === 'true'
+      // 首次进入才套用服务端配置的初始模式与 JAV 默认排序 ——
+      // 之后用户手动切过模式，不该被后台配置拽回去。
+      patch.view = initialViewMode(cfg)
+      const javSort = normalizeJavSort(String(cfg?.jav_sort || '').toLowerCase(), '')
+      if (javSort) patch.javSort = javSort
       set(patch)
       return cfg
     } catch {
@@ -451,6 +460,49 @@ export const useStore = create((set, get) => ({
   pushPage: (type, payload = null) => set({ pages: [...get().pages, { type, payload }] }),
   popPage: () => set({ pages: get().pages.slice(0, -1) }),
   closeAllPages: () => set({ pages: [] }),
+
+  /* ---------------- 设置区（P2） ---------------- */
+
+  /**
+   * 「我的」顶部概览卡的数字。
+   *
+   * 三个请求都只取 limit=1，用返回的 total 而不是把整页数据拉下来；
+   * 任何一个失败都只让那一格显示「—」，不影响另外两格。
+   */
+  loadOverviewStats: async () => {
+    const [videos, javs, directories] = await Promise.all([
+      fetchVideos({ limit: 1, offset: 0 })
+        .then((r) => r?.total ?? 0)
+        .catch(() => null),
+      fetchJavs({ limit: 1, offset: 0 })
+        .then((r) => r?.total ?? 0)
+        .catch(() => null),
+      fetchDirectories()
+        .then((list) => list.filter((d) => !d?.is_delete).length)
+        .catch(() => null),
+    ])
+    return { videos, javs, directories }
+  },
+
+  /**
+   * 保存全局设置。
+   *
+   * `PATCH /config` 是**部分更新**：只写请求体里出现的键。
+   * 但注意后端的校验是「整个请求一起失败」—— 只要有一个键非法就 400，
+   * 一个都不会写入。所以调用方必须保证每个值都经过范围校验。
+   */
+  saveConfig: async (patch) => {
+    const cfg = await updateConfig(patch)
+    const state = {}
+    const size = parseInt(cfg?.video_page_size, 10)
+    const sort = normalizeVideoSort(String(cfg?.video_sort || '').toLowerCase(), '')
+    if (Number.isFinite(size) && size > 0) state.pageSize = Math.min(size, 500)
+    if (sort) state.sort = sort
+    state.hideJav = String(cfg?.video_hide_jav || '').toLowerCase() === 'true'
+    state.config = cfg
+    set(state)
+    return cfg
+  },
 }))
 
 export function videoKey(video) {

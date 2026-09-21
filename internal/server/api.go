@@ -41,6 +41,8 @@ func RegisterRoutes(router gin.IRoutes) {
 	router.DELETE("/videos/:id/screenshots/:name", deleteVideoScreenshot)
 	router.PATCH("/videos/:id/locations/:location_id", renameVideoLocation)
 	router.DELETE("/videos/:id/locations/:location_id", deleteVideoLocation)
+	// 只把 VideoLocation 标记为已删除，绝不碰磁盘上的文件。移动端专用（见 DESIGN.md §3.6）。
+	router.POST("/videos/locations/hide", hideVideoLocations)
 	router.POST("/videos/:id/play", incrementVideoPlayCount)
 	router.POST("/videos/play", playVideoFile)
 	router.POST("/videos/playlist", playVideoPlaylist)

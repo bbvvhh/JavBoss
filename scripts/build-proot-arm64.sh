@@ -27,7 +27,10 @@
 #   GH_MIRRORS         GitHub 加速前缀列表（按顺序尝试，最后再直连 github.com），
 #                      默认 "https://gh-proxy.com/ https://ghfast.top/ https://ghproxy.net/"
 #                      置空则只直连 github.com
-#   BUILD_WEB=1        先用 npm 重新构建 web/dist（默认复用仓库里已有的 web/dist）
+#   BUILD_WEB=1        先用 npm 重新构建 web/dist **与** web-mobile/dist
+#                      （默认复用仓库里已有的两个 dist）
+#   SKIP_MOBILE_WEB=1  不打包 web-mobile/dist（默认打包：这包就跑在手机上，
+#                      手机浏览器打开根路径会自动切到移动端界面）
 #   SKIP_FFMPEG=1      不下载/不打包 ffmpeg 与 ffprobe
 #   SKIP_ZIP=1         不生成 zip（默认同时产出 tar.gz 与 zip）
 #
@@ -382,14 +385,19 @@ setup_toolchain
 
 OUT_DIR="$ROOT_DIR/release/javboss-${VERSION}-linux-arm64-proot"
 WEB_DIST="$ROOT_DIR/web/dist"
+MOBILE_WEB_DIST="$ROOT_DIR/web-mobile/dist"
 
 if [[ "${BUILD_WEB:-0}" == "1" ]]; then
   need npm
-  say "构建前端（npm run build）"
+  say "构建前端（web 与 web-mobile 的 npm run build）"
   ( cd "$ROOT_DIR/web" && { [[ -d node_modules ]] || npm install; } && npm run build )
+  ( cd "$ROOT_DIR/web-mobile" && { [[ -d node_modules ]] || npm install; } && npm run build )
 fi
 
 [[ -f "$WEB_DIST/index.html" ]] || die "缺少 web/dist，请先执行：cd web && npm install && npm run build"
+if [[ "${SKIP_MOBILE_WEB:-0}" != "1" ]]; then
+  [[ -f "$MOBILE_WEB_DIST/index.html" ]] || die "缺少 web-mobile/dist，请先执行：cd web-mobile && npm install && npm run build（或用 SKIP_MOBILE_WEB=1 明确跳过移动端界面）"
+fi
 
 say "准备输出目录 $OUT_DIR"
 rm -rf "$OUT_DIR"
@@ -422,6 +430,11 @@ fi
 say "复制前端资源、ModernZ 与启动脚本"
 mkdir -p "$OUT_DIR/web"
 cp -a "$WEB_DIST" "$OUT_DIR/web/dist"
+# 移动端界面：本包就跑在手机上，手机浏览器打开根路径会自动 302 到 /m/。
+if [[ "${SKIP_MOBILE_WEB:-0}" != "1" ]]; then
+  mkdir -p "$OUT_DIR/web-mobile"
+  cp -a "$MOBILE_WEB_DIST" "$OUT_DIR/web-mobile/dist"
+fi
 if [[ -d "$ROOT_DIR/modernz" ]]; then
   cp -a "$ROOT_DIR/modernz" "$OUT_DIR/modernz"
 fi
@@ -474,3 +487,6 @@ if [[ "${SKIP_ZIP:-0}" != "1" ]]; then
   say "  校验：$ZIP_ARCHIVE.sha256"
 fi
 say "包内用法见 $OUT_DIR/README.md（解压后 ./start.sh，浏览器打开 http://127.0.0.1:8655）"
+if [[ "${SKIP_MOBILE_WEB:-0}" != "1" ]]; then
+  say "手机浏览器打开同一个地址会自动进入移动端界面（/m/）；想用电脑版访问 /?desktop=1"
+fi

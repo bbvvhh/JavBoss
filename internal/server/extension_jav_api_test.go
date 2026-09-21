@@ -13,7 +13,7 @@ import (
 )
 
 func TestExtensionJavOwnership(t *testing.T) {
-	router := NewRouter("", testAuthService(t))
+	router := NewRouter("", "", testAuthService(t))
 	token, err := newExtensionCredential()
 	if err != nil {
 		t.Fatal(err)

@@ -1,10 +1,12 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +27,7 @@ func TestIndexHTMLIgnoresStaleBrowserValidators(t *testing.T) {
 		t.Fatalf("set index modification time: %v", err)
 	}
 
-	router := NewRouter(staticDir, testAuthService(t))
+	router := NewRouter(staticDir, "", testAuthService(t))
 	for _, path := range []string{"/", "/index.html", "/client/route"} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -59,7 +61,7 @@ func TestUnknownAPIPathDoesNotServeIndexHTML(t *testing.T) {
 		t.Fatalf("write index: %v", err)
 	}
 
-	router := NewRouter(staticDir, testAuthService(t))
+	router := NewRouter(staticDir, "", testAuthService(t))
 	for _, path := range []string{"/tools/missing", "/downloader/missing", "/downloads/missing"} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -100,7 +102,7 @@ func TestFrontendStaticFilesAreServed(t *testing.T) {
 		}
 	}
 
-	router := NewRouter(staticDir, testAuthService(t))
+	router := NewRouter(staticDir, "", testAuthService(t))
 	for _, test := range []struct {
 		method      string
 		path        string
@@ -160,19 +162,42 @@ func TestFrontendStaticFileCannotEscapeStaticDirectory(t *testing.T) {
 	if err := os.WriteFile(secretPath, []byte("secret"), 0o600); err != nil {
 		t.Fatalf("write secret: %v", err)
 	}
-	if err := os.Symlink(secretPath, filepath.Join(staticDir, "secret.txt")); err != nil {
-		t.Fatalf("create symlink: %v", err)
-	}
 
-	router := NewRouter(staticDir, testAuthService(t))
-	req := httptest.NewRequest(http.MethodGet, "/secret.txt", nil)
-	recorder := httptest.NewRecorder()
-	router.ServeHTTP(recorder, req)
+	router := NewRouter(staticDir, "", testAuthService(t))
 
-	if recorder.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNotFound)
-	}
-	if strings.Contains(recorder.Body.String(), "secret") {
-		t.Fatalf("body exposed file outside static directory: %s", recorder.Body.String())
-	}
+	// 1) 相对路径逃逸：不依赖任何平台特性，所有平台都必须挡住。
+	t.Run("dot-dot traversal", func(t *testing.T) {
+		for _, path := range []string{"/../secret.txt", "/%2e%2e/secret.txt", "/assets/../../secret.txt"} {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, req)
+			if strings.Contains(recorder.Body.String(), "secret") {
+				t.Fatalf("%s 泄露了静态目录之外的文件: %s", path, recorder.Body.String())
+			}
+		}
+	})
+
+	// 2) 符号链接逃逸。Windows 默认不允许普通用户创建符号链接
+	//    （需要 SeCreateSymbolicLinkPrivilege 或开发者模式），拿到的错误是
+	//    ERROR_PRIVILEGE_NOT_HELD，它并不等于 os.ErrPermission。
+	//    这是环境限制而不是被测行为，所以跳过；上面的 ../ 用例在任何平台都会跑。
+	t.Run("symlink escape", func(t *testing.T) {
+		if err := os.Symlink(secretPath, filepath.Join(staticDir, "secret.txt")); err != nil {
+			if runtime.GOOS == "windows" || errors.Is(err, os.ErrPermission) {
+				t.Skipf("当前环境不允许创建符号链接，跳过符号链接逃逸断言: %v", err)
+			}
+			t.Fatalf("create symlink: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/secret.txt", nil)
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, req)
+
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNotFound)
+		}
+		if strings.Contains(recorder.Body.String(), "secret") {
+			t.Fatalf("body exposed file outside static directory: %s", recorder.Body.String())
+		}
+	})
 }

@@ -108,3 +108,81 @@ export function normalizeJavDensity(value) {
   const key = String(value || '').trim()
   return JAV_DENSITIES.includes(key) ? key : DEFAULT_JAV_DENSITY
 }
+
+// 女优排序选项（从 web/src/constants/jav.js 复制，用于设置页的默认排序选择）。
+export const IDOL_SORT_OPTIONS = [
+  {
+    ascValue: 'work_asc',
+    descValue: 'work',
+    label: ['作品数量', 'Work count'],
+    asc: ['少→多', 'low→high'],
+    desc: ['多→少', 'high→low'],
+  },
+  {
+    ascValue: 'recent_asc',
+    descValue: 'recent',
+    label: ['加入时间', 'Added time'],
+    asc: ['远→近', 'old→new'],
+    desc: ['近→远', 'new→old'],
+  },
+  {
+    ascValue: 'birth',
+    descValue: 'birth_asc',
+    label: ['年龄', 'Age'],
+    asc: ['小→大', 'young→old'],
+    desc: ['大→小', 'old→young'],
+  },
+  {
+    ascValue: 'height',
+    descValue: 'height_desc',
+    label: ['身高', 'Height'],
+    asc: ['低→高', 'short→tall'],
+    desc: ['高→低', 'tall→short'],
+  },
+  {
+    ascValue: 'bust_asc',
+    descValue: 'bust',
+    label: ['胸围', 'Bust'],
+    asc: ['小→大', 'small→large'],
+    desc: ['大→小', 'large→small'],
+  },
+  {
+    ascValue: 'hips_asc',
+    descValue: 'hips',
+    label: ['臀围', 'Hips'],
+    asc: ['小→大', 'small→large'],
+    desc: ['大→小', 'large→small'],
+  },
+  {
+    ascValue: 'waist',
+    descValue: 'waist_desc',
+    label: ['腰围', 'Waist'],
+    asc: ['小→大', 'small→large'],
+    desc: ['大→小', 'large→small'],
+  },
+  {
+    ascValue: 'cup_asc',
+    descValue: 'cup',
+    label: ['罩杯', 'Cup'],
+    asc: ['小→大', 'small→large'],
+    desc: ['大→小', 'large→small'],
+  },
+]
+
+const idolSortValues = new Set(
+  IDOL_SORT_OPTIONS.flatMap((option) => [option.ascValue, option.descValue])
+)
+
+export function normalizeIdolSort(sort, fallback = 'work') {
+  const key = String(sort || '')
+    .trim()
+    .toLowerCase()
+  return idolSortValues.has(key) ? key : fallback
+}
+
+export function buildSortChoices(options) {
+  return options.flatMap((option) => [
+    { value: option.descValue, label: `${option.label[0]}（${option.desc[0]}）` },
+    { value: option.ascValue, label: `${option.label[0]}（${option.asc[0]}）` },
+  ])
+}

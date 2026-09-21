@@ -16,7 +16,7 @@ import (
 
 func TestExtensionTokenLifecycle(t *testing.T) {
 	auth := testAuthService(t)
-	router := NewRouter("", auth)
+	router := NewRouter("", "", auth)
 	login := performRequest(router, http.MethodPost, "/auth/login", []byte(`{"password":"admin"}`), "http://example.com", nil)
 	cookie := responseCookie(t, login, auth.cookieName)
 	admin := func(method, path, body string) *httptest.ResponseRecorder {
@@ -89,7 +89,7 @@ func TestExtensionTokenLifecycle(t *testing.T) {
 		t.Fatal("last use not recorded")
 	}
 	// Rebuilding the router does not lose persisted extension authorization.
-	router = NewRouter("", auth)
+	router = NewRouter("", "", auth)
 	check(credential, 400)
 	rotated := admin("POST", fmt.Sprintf("/auth/extension-tokens/%d/rotate", first.ID), `{"expires_in_days":90}`)
 	if rotated.Code != 200 {
@@ -145,7 +145,7 @@ func TestExtensionTokenLifecycle(t *testing.T) {
 
 func TestExtensionTokenEnforcement(t *testing.T) {
 	auth := testAuthService(t)
-	router := NewRouter("", auth)
+	router := NewRouter("", "", auth)
 	makeToken := func(expired, deleted bool) string {
 		token, err := newExtensionCredential()
 		if err != nil {
@@ -231,7 +231,7 @@ func TestExtensionTokenEnforcement(t *testing.T) {
 
 func TestExtensionTokenManagementValidation(t *testing.T) {
 	auth := testAuthService(t)
-	router := NewRouter("", auth)
+	router := NewRouter("", "", auth)
 	login := performRequest(router, "POST", "/auth/login", []byte(`{"password":"admin"}`), "", nil)
 	cookie := responseCookie(t, login, auth.cookieName)
 	for _, body := range []string{`{`, `{}`, `{"name":" "}`, `{"name":"browser","expires_in_days":-1}`, `{"name":"browser","expires_in_days":366}`} {
@@ -271,7 +271,7 @@ func TestExtensionTokenManagementValidation(t *testing.T) {
 
 func TestExtensionTokenAPIPolicy(t *testing.T) {
 	auth := testAuthService(t)
-	router := NewRouter("", auth)
+	router := NewRouter("", "", auth)
 	credential, err := newExtensionCredential()
 	if err != nil {
 		t.Fatal(err)
@@ -343,7 +343,7 @@ func TestExtensionTokenAPIPolicy(t *testing.T) {
 
 func TestExtensionTokenNeverExpires(t *testing.T) {
 	auth := testAuthService(t)
-	router := NewRouter("", auth)
+	router := NewRouter("", "", auth)
 	login := performRequest(router, "POST", "/auth/login", []byte(`{"password":"admin"}`), "", nil)
 	cookie := responseCookie(t, login, auth.cookieName)
 	request := func(path, body string, status int) models.ExtensionToken {
@@ -402,7 +402,7 @@ func TestExtensionTokenNeverExpires(t *testing.T) {
 
 func TestExtensionConnectionStatus(t *testing.T) {
 	auth := testAuthService(t)
-	router := NewRouter("", auth)
+	router := NewRouter("", "", auth)
 	now := time.Now().UTC()
 	for _, tc := range []struct {
 		name    string

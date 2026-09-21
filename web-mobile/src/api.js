@@ -342,3 +342,336 @@ export async function resolveJavSampleImages(id) {
   })
   return Array.isArray(data?.sample_images) ? data.sample_images : []
 }
+
+/* ======================================================================
+ * 设置区（P2）
+ * ======================================================================
+ *
+ * 本节新增的接口全部满足 §0 的安全分类：
+ *   - GET                 → 只读
+ *   - PATCH/PUT/POST 到 /config、/directories、/tags、/jav、/storage、
+ *     /downloader/settings、/auth/extension-tokens
+ *                         → 只写 javboss.db 或 JavBoss 自己的 data/ 目录
+ *
+ * 以下接口**刻意不提供**，即使它们存在于 PC 端：
+ *   - 目录整理（/directories/:id/process）→ 内部 os.Remove / os.Rename 用户文件
+ *   - 删除视频文件位置（DELETE /videos/:id/locations/:id）→ 物理删除
+ *   - 在文件管理器里打开 / 定位（/videos/open、/videos/reveal）→ 桌面端能力
+ *   - 在系统文件管理器里定位下载目录（/downloads/:id/reveal）→ 桌面端能力
+ *
+ * 「删除目录」在 PC 端就是 `PATCH /directories/:id {is_delete:true}`（软删记录），
+ * 不是物理删除，所以可以安全复用 —— 见 deleteDirectory()。
+ */
+
+/* ---------------- 配置（PATCH 是部分更新，只提交改动的字段） ---------------- */
+
+export async function updateConfig(payload) {
+  return requestJSON('PATCH', `/config`, { body: payload || {} })
+}
+
+/* ---------------- 认证 ---------------- */
+
+export async function changePassword(currentPassword, newPassword) {
+  await requestOK('PUT', `/auth/password`, {
+    body: { current_password: currentPassword, new_password: newPassword },
+  })
+}
+
+/* ---------------- 工具（只读 + 下载到 JavBoss 自己的 bin/ 目录） ---------------- */
+
+export async function fetchTools() {
+  return requestJSON('GET', `/tools`, { cache: 'no-store' })
+}
+
+export async function downloadFFmpeg() {
+  return requestJSON('POST', `/tools/ffmpeg/download`)
+}
+
+/* ---------------- 目录管理 ---------------- */
+
+export async function fetchDirectories() {
+  const data = await requestJSON('GET', `/directories`, { cache: 'no-store' })
+  return Array.isArray(data) ? data : []
+}
+
+export async function createDirectory({ path, kind = 'local', connectionId, remotePath } = {}) {
+  return requestJSON('POST', `/directories`, {
+    body: { path, kind, connection_id: connectionId, remote_path: remotePath },
+  })
+}
+
+export async function browseDirectories(path = '', { showHidden = false, signal } = {}) {
+  const params = new URLSearchParams({ path: String(path || ''), show_hidden: String(showHidden) })
+  return requestJSON('GET', `/directories/browse?${params.toString()}`, {
+    cache: 'no-store',
+    signal,
+  })
+}
+
+export async function updateDirectory(id, payload) {
+  return requestJSON('PATCH', `/directories/${id}`, { body: payload || {} })
+}
+
+/** 软删除：只把目录记录标记为已删除，磁盘上的视频文件一个都不会动。 */
+export async function deleteDirectory(id) {
+  return updateDirectory(id, { is_delete: true })
+}
+
+export async function scanDirectory(id) {
+  return requestJSON('POST', `/directories/${id}/scan`)
+}
+
+/* ---------------- 远程存储连接（WebDAV 等） ---------------- */
+
+export async function fetchStorageConnections() {
+  const data = await requestJSON('GET', `/storage/connections`, { cache: 'no-store' })
+  return Array.isArray(data) ? data : (data?.items ?? [])
+}
+
+export async function createStorageConnection(payload) {
+  return requestJSON('POST', `/storage/connections`, { body: payload || {} })
+}
+
+export async function updateStorageConnection(id, payload) {
+  return requestJSON('PATCH', `/storage/connections/${id}`, { body: payload || {} })
+}
+
+export async function deleteStorageConnection(id) {
+  return requestJSON('DELETE', `/storage/connections/${id}`)
+}
+
+export async function testStorageConnection({ connectionId, url, username, password, path } = {}) {
+  return requestJSON('POST', `/storage/connections/test`, {
+    body: { connection_id: connectionId, url, username, password, path },
+  })
+}
+
+export async function browseStorageDirectories(
+  connectionId,
+  path = '',
+  { showHidden = false, signal } = {}
+) {
+  const params = new URLSearchParams({
+    connection_id: String(connectionId),
+    path: String(path || ''),
+    show_hidden: String(showHidden),
+  })
+  return requestJSON('GET', `/storage/browse?${params.toString()}`, { cache: 'no-store', signal })
+}
+
+/* ---------------- 下载器与任务 ---------------- */
+
+export async function fetchDownloaderSettings() {
+  return requestJSON('GET', `/downloader/settings`, { cache: 'no-store' })
+}
+
+export async function updateDownloaderSettings(payload) {
+  return requestJSON('PUT', `/downloader/settings`, { body: payload || {} })
+}
+
+export async function updateCloudDrive2Settings(payload) {
+  return requestJSON('PUT', `/downloader/clouddrive2`, { body: payload || {} })
+}
+
+export async function fetchCloudDrive2Token() {
+  return requestJSON('GET', `/downloader/clouddrive2/token`, { cache: 'no-store' })
+}
+
+export async function testCloudDrive2(payload) {
+  return requestJSON('POST', `/downloader/clouddrive2/test`, { body: payload || {} })
+}
+
+export async function fetchDownloadJobs({ limit = 20, offset = 0, signal } = {}) {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+  return requestJSON('GET', `/downloads?${params.toString()}`, { cache: 'no-store', signal })
+}
+
+export async function createDownloadJob({ magnetUrl } = {}) {
+  return requestJSON('POST', `/downloads`, { body: { magnet_url: magnetUrl } })
+}
+
+export async function retryDownloadJob(id) {
+  await requestOK('POST', `/downloads/${encodeURIComponent(id)}/retry`)
+}
+
+export async function cancelDownloadJob(id) {
+  await requestOK('POST', `/downloads/${encodeURIComponent(id)}/cancel`)
+}
+
+/**
+ * 删除下载任务**记录**。
+ *
+ * 已核实 internal/server/downloader_api.go:405-415 与 internal/db/download.go:313-325：
+ * 这是一条带状态条件的 GORM Delete，只删 download_job 一行，
+ * 不碰磁盘上任何文件 —— 下载完成的视频仍然留在下载目录里。
+ * 所以移动端的文案必须写「删除记录」，不能写「删除文件」。
+ */
+export async function deleteDownloadJob(id) {
+  // 204 No Content，不能用 requestJSON。
+  await requestOK('DELETE', `/downloads/${encodeURIComponent(id)}`)
+}
+
+/* ---------------- 扩展令牌 ---------------- */
+
+export async function fetchExtensionTokens() {
+  const data = await requestJSON('GET', `/auth/extension-tokens`, { cache: 'no-store' })
+  return Array.isArray(data) ? data : (data?.items ?? [])
+}
+
+export async function createExtensionToken(name, expiresInDays) {
+  return requestJSON('POST', `/auth/extension-tokens`, {
+    body: { name, expires_in_days: expiresInDays },
+  })
+}
+
+export async function rotateExtensionToken(id, expiresInDays) {
+  return requestJSON('POST', `/auth/extension-tokens/${id}/rotate`, {
+    body: { expires_in_days: expiresInDays },
+  })
+}
+
+export async function deleteExtensionToken(id) {
+  // 后端返回 204 No Content（空 body），不能用 requestJSON —— res.json() 会抛。
+  await requestOK('DELETE', `/auth/extension-tokens/${id}`)
+}
+
+/* ---------------- 视频标签与分类（只写数据库） ---------------- */
+
+export async function fetchTagCategories() {
+  const data = await requestJSON('GET', `/tags/categories`)
+  return Array.isArray(data) ? data : (data?.items ?? [])
+}
+
+export async function createTagCategory(name) {
+  return requestJSON('POST', `/tags/categories`, { body: { name } })
+}
+
+export async function renameTagCategory(id, name) {
+  await requestOK('PATCH', `/tags/categories/${id}`, { body: { name } })
+}
+
+export async function deleteTagCategory(id) {
+  await requestOK('DELETE', `/tags/categories/${id}`)
+}
+
+/** 顺序就是数组顺序；移动端用上/下移按钮整体提交，不做拖拽。 */
+export async function reorderTagCategories(categoryIds) {
+  await requestOK('PUT', `/tags/categories/order`, { body: { category_ids: categoryIds } })
+}
+
+export async function assignTagsCategory(tagIds, categoryId) {
+  await requestOK('POST', `/tags/category`, { body: { tag_ids: tagIds, category_id: categoryId } })
+}
+
+export async function renameTag(id, name) {
+  await requestOK('PATCH', `/tags/${id}`, { body: { name } })
+}
+
+export async function deleteTag(id) {
+  await requestOK('DELETE', `/tags/${id}`)
+}
+
+export async function deleteTagsBatch(tagIds) {
+  await requestOK('POST', `/tags/batch_delete`, { body: { tag_ids: tagIds } })
+}
+
+/* ---------------- JAV 标签与分类（只写数据库） ---------------- */
+
+export async function fetchJavTagCategories() {
+  const data = await requestJSON('GET', `/jav/tag-categories`)
+  return Array.isArray(data) ? data : (data?.items ?? [])
+}
+
+export async function createJavTagCategory(name) {
+  return requestJSON('POST', `/jav/tag-categories`, { body: { name } })
+}
+
+export async function renameJavTagCategory(id, name) {
+  await requestOK('PATCH', `/jav/tag-categories/${id}`, { body: { name } })
+}
+
+export async function deleteJavTagCategory(id) {
+  await requestOK('DELETE', `/jav/tag-categories/${id}`)
+}
+
+export async function reorderJavTagCategories(categoryIds) {
+  await requestOK('PUT', `/jav/tag-categories/order`, { body: { category_ids: categoryIds } })
+}
+
+export async function createJavTag(name) {
+  return requestJSON('POST', `/jav/tags`, { body: { name } })
+}
+
+export async function renameJavTag(id, name) {
+  await requestOK('PATCH', `/jav/tags/${id}`, { body: { name } })
+}
+
+export async function deleteJavTag(id) {
+  await requestOK('DELETE', `/jav/tags/${id}`)
+}
+
+export async function deleteJavTagsBatch(tagIds) {
+  await requestOK('POST', `/jav/tags/batch_delete`, { body: { tag_ids: tagIds } })
+}
+
+export async function assignJavTagsCategory(tagIds, categoryId) {
+  await requestOK('POST', `/jav/tags/category`, {
+    body: { tag_ids: tagIds, category_id: categoryId },
+  })
+}
+
+/** 按现有分类规则把无分类的 JAV 标签归类；只动数据库。 */
+export async function organizeJavTags() {
+  return requestJSON('POST', `/jav/tags/organize`)
+}
+
+/* ---------------- JAV 收藏夹（4 类实体：jav / idol / studio / series） ---------------- */
+
+const FAVORITE_ENTITIES = ['jav', 'idol', 'studio', 'series']
+
+function favoriteEntity(entityType) {
+  const value = String(entityType || '').trim()
+  return FAVORITE_ENTITIES.includes(value) ? value : 'jav'
+}
+
+export async function createJavFavoriteGroup(entityType, name) {
+  return requestJSON('POST', `/jav/${favoriteEntity(entityType)}-favorite-groups`, {
+    body: { name },
+  })
+}
+
+export async function renameJavFavoriteGroup(entityType, id, name) {
+  await requestOK('PATCH', `/jav/${favoriteEntity(entityType)}-favorite-groups/${id}`, {
+    body: { name },
+  })
+}
+
+export async function deleteJavFavoriteGroup(entityType, id) {
+  await requestOK('DELETE', `/jav/${favoriteEntity(entityType)}-favorite-groups/${id}`)
+}
+
+export async function reorderJavFavoriteGroups(entityType, groupIds) {
+  await requestOK('PUT', `/jav/${favoriteEntity(entityType)}-favorite-groups/order`, {
+    body: { group_ids: groupIds },
+  })
+}
+
+export async function fetchJavFavoriteGroupItems(entityType, id) {
+  const data = await requestJSON(
+    'GET',
+    `/jav/${favoriteEntity(entityType)}-favorite-groups/${id}/items`
+  )
+  return Array.isArray(data) ? data : (data?.items ?? [])
+}
+
+export async function reorderJavFavoriteGroupItems(entityType, id, entityIds) {
+  await requestOK('PUT', `/jav/${favoriteEntity(entityType)}-favorite-groups/${id}/item-order`, {
+    body: { entity_ids: entityIds },
+  })
+}
+
+export async function removeJavFavoriteGroupItems(entityType, id, entityIds) {
+  await requestOK('POST', `/jav/${favoriteEntity(entityType)}-favorite-groups/${id}/items/remove`, {
+    body: { entity_ids: entityIds },
+  })
+}

@@ -1278,12 +1278,49 @@ func deleteVideoLocation(c *gin.Context) {
 		return
 	}
 
-	if err := dbpkg.HideVideoLocationsByIDs(c.Request.Context(), []int64{locationID}); err != nil {
+	if _, err := dbpkg.HideVideoLocationsByIDs(c.Request.Context(), []int64{locationID}); err != nil {
 		logging.Error("hide deleted video location error: %v", err)
 		respondLocalizedError(c, http.StatusInternalServerError, "更新视频记录失败", "Failed to update video record")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// hideVideoLocations 把一个或多个视频位置从媒体库里移除，**只改数据库**。
+//
+// 与 deleteVideoLocation 的区别是这个 handler 里没有任何文件系统调用：
+// 它只把 VideoLocation.IsDelete 置为 true，让这些位置不再出现在列表里。
+// 磁盘上的视频文件、Video 行以及挂在 Video 上的标签都保持不动，
+// 因此下一次扫描发现同一个文件时会把它恢复（directory_scan 会把 IsDelete 重置）。
+//
+// 移动端只用这个接口，不用 DELETE /videos/:id/locations/:id —— 后者在 Linux/macOS 上
+// 是 os.Remove，会真的删掉用户的文件。
+func hideVideoLocations(c *gin.Context) {
+	var req struct {
+		LocationIDs []int64 `json:"location_ids" binding:"required,min=1,dive,gt=0"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondLocalizedError(c, http.StatusBadRequest, "请提供要移除的视频位置", "Video location IDs are required")
+		return
+	}
+
+	ids := make([]int64, 0, len(req.LocationIDs))
+	seen := make(map[int64]struct{}, len(req.LocationIDs))
+	for _, id := range req.LocationIDs {
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+
+	hidden, err := dbpkg.HideVideoLocationsByIDs(c.Request.Context(), ids)
+	if err != nil {
+		logging.Error("hide video locations error: %v", err)
+		respondLocalizedError(c, http.StatusInternalServerError, "移除视频失败", "Failed to remove the videos")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "hidden": hidden})
 }
 
 func parseVideoLocationParams(c *gin.Context) (int64, int64, bool) {

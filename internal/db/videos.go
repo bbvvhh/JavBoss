@@ -360,7 +360,10 @@ func hydrateLocationJavs(ctx context.Context, locations []models.VideoLocation) 
 	}
 
 	var javs []models.Jav
-	if err := common.DB.WithContext(ctx).Where("id IN ?", javIDs).Find(&javs).Error; err != nil {
+	// Preload("Idols")：Video.Jav 是 gorm:"-" 手工组装的，不显式 preload 的话
+	// jav.idols 永远是空的，移动端大图模式的演员行就没数据。PC 端忽略这个字段，
+	// 代价只是每页多十几 KB。
+	if err := common.DB.WithContext(ctx).Preload("Idols").Where("id IN ?", javIDs).Find(&javs).Error; err != nil {
 		return fmt.Errorf("load location javs: %w", err)
 	}
 	byID := make(map[int64]*models.Jav, len(javs))

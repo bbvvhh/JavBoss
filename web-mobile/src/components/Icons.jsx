@@ -136,6 +136,26 @@ const PATHS = {
     />
   ),
   expand: <path d="M4 9V4h5M20 15v5h-5M4 4l6 6M20 20l-6-6" {...STROKE} />,
+  plus: <path d="M12 5.5v13M5.5 12h13" {...STROKE} />,
+  minus: <path d="M5.5 12h13" {...STROKE} />,
+  // 单向箭头。排序用的双向「sort」图标旋转 180° 之后外形几乎一样，
+  // 拿来做「上移 / 下移」按钮用户根本分不出哪个是哪个，所以另开两个图标。
+  arrowUp: <path d="M12 19.5V5m0 0-5 5m5-5 5 5" {...STROKE} strokeWidth={2.2} />,
+  arrowDown: <path d="M12 4.5V19m0 0-5-5m5 5 5-5" {...STROKE} strokeWidth={2.2} />,
+  lock: (
+    <>
+      <rect x="4.5" y="10.5" width="15" height="9.5" rx="2" {...STROKE} />
+      <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" {...STROKE} />
+    </>
+  ),
+  download: <path d="M12 4v11m0 0-4-4m4 4 4-4M4.5 19.5h15" {...STROKE} />,
+  list: <path d="M4 7h16M4 12h16M4 17h10" {...STROKE} strokeWidth={2} />,
+  logout: (
+    <path
+      d="M14 5.5H6.5A1.5 1.5 0 0 0 5 7v10a1.5 1.5 0 0 0 1.5 1.5H14M17 8.5 20.5 12 17 15.5M10 12h10.5"
+      {...STROKE}
+    />
+  ),
   inbox: <path d="M3.5 13.5 6 5h12l2.5 8.5V19h-17v-5.5ZM3.5 13.5H9l1 2h4l1-2h5.5" {...STROKE} />,
   eye: (
     <>

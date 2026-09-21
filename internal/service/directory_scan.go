@@ -429,7 +429,7 @@ func hideUnprocessedVideoLocations(ctx context.Context, processedLocationIDs map
 	}
 
 	logging.Info("hiding stale video locations: count=%d", len(staleIDs))
-	if err := db.HideVideoLocationsByIDs(ctx, staleIDs); err != nil {
+	if _, err := db.HideVideoLocationsByIDs(ctx, staleIDs); err != nil {
 		return err
 	}
 	summary.Removed += len(staleIDs)

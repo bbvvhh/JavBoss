@@ -10,6 +10,8 @@ screenshot
 temp
 web/dist
 web/node_modules
+web-mobile/dist
+web-mobile/node_modules
 scripts/cli/build
 scripts/cli/node_modules
 **/*.log

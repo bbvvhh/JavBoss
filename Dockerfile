@@ -11,6 +11,18 @@ RUN --mount=type=cache,target=/root/.npm npm ci --prefer-offline
 COPY web/ ./
 RUN npm run build
 
+# 移动端界面。后端把它挂在 /m/ 下，并按 Cookie → UA 的顺序做界面分流。
+FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS mobile-web-build
+
+ARG NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
+ENV NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY}
+
+WORKDIR /src/web-mobile
+COPY web-mobile/package*.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci --prefer-offline
+COPY web-mobile/ ./
+RUN npm run build
+
 FROM golang:1.25-bookworm AS go-build
 
 ARG GOPROXY=https://goproxy.cn,direct
@@ -62,6 +74,7 @@ COPY --from=ffmpeg-build /ffmpeg ./internal/bin/ffmpeg
 COPY --from=ffmpeg-build /ffprobe ./internal/bin/ffprobe
 COPY --from=go-build /out/javboss ./javboss
 COPY --from=web-build /src/web/dist ./web/dist
+COPY --from=mobile-web-build /src/web-mobile/dist ./web-mobile/dist
 
 ENV JAVBOSS_CONTAINER=1 \
   JAVBOSS_DISABLE_DESKTOP_INTEGRATION=1 \

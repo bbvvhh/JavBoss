@@ -32,7 +32,7 @@ func TestVideoLocationPathExistsIgnoresHiddenRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upsert location: %v", err)
 	}
-	if err := HideVideoLocationsByIDs(ctx, []int64{loc.ID}); err != nil {
+	if _, err := HideVideoLocationsByIDs(ctx, []int64{loc.ID}); err != nil {
 		t.Fatalf("hide location: %v", err)
 	}
 
@@ -82,7 +82,7 @@ func TestUpdateVideoLocationPathReusesHiddenPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upsert active location: %v", err)
 	}
-	if err := HideVideoLocationsByIDs(ctx, []int64{hiddenLoc.ID}); err != nil {
+	if _, err := HideVideoLocationsByIDs(ctx, []int64{hiddenLoc.ID}); err != nil {
 		t.Fatalf("hide target location: %v", err)
 	}
 

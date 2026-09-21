@@ -4,10 +4,12 @@ import { fetchJavIdols, fetchJavSeries, fetchJavStudios, fetchJavs } from '@/api
 import Icon from '@/components/Icons'
 import IdolCover from '@/components/IdolCover'
 import JavWorkCard from '@/components/JavWorkCard'
-import { JAV_DENSITY_COLUMNS } from '@/constants/jav'
+import { JAV_DENSITY_COLUMNS, normalizeIdolSort } from '@/constants/jav'
 import useHideOnScroll from '@/hooks/useHideOnScroll'
 import { useStore } from '@/store'
+import { configString } from '@/utils/config'
 import { formatCount } from '@/utils/format'
+import { javPageSize } from '@/utils/javDisplay'
 import { zh } from '@/utils/i18n'
 
 const TABS = [
@@ -16,8 +18,6 @@ const TABS = [
   ['studios', zh('片商', 'Studios')],
   ['series', zh('系列', 'Series')],
 ]
-
-const PAGE_SIZE = 24
 
 const FETCHERS = {
   works: fetchJavs,
@@ -72,6 +72,11 @@ export default function JavListPage() {
   const javDensity = useStore((state) => state.javDensity)
   const jumpToJavWorks = useStore((state) => state.jumpToJavWorks)
   const filters = useStore((state) => state.javFilters)
+  const config = useStore((state) => state.config)
+
+  // 每页数量与女优默认排序都来自全局设置（缺省值与 PC 端一致）。
+  const pageSize = javPageSize(config, tab)
+  const idolSort = normalizeIdolSort(configString(config, 'idol_sort', 'work'))
 
   const [items, setItems] = useState([])
   const [total, setTotal] = useState(0)
@@ -99,7 +104,7 @@ export default function JavListPage() {
       }
 
       const parsed = JSON.parse(filtersKey)
-      const common = { limit: PAGE_SIZE, offset, search }
+      const common = { limit: pageSize, offset, search }
       const params =
         tab === 'works'
           ? {
@@ -117,7 +122,9 @@ export default function JavListPage() {
               sort: javRandomSeed ? 'random' : javSort,
               seed: javRandomSeed || null,
             }
-          : common
+          : tab === 'idols'
+            ? { ...common, sort: idolSort }
+            : common
 
       try {
         const resp = await fetcher(params)
@@ -136,7 +143,7 @@ export default function JavListPage() {
         }
       }
     },
-    [tab, search, javSort, javRandomSeed, filtersKey]
+    [tab, search, javSort, javRandomSeed, filtersKey, pageSize, idolSort]
   )
 
   useEffect(() => {

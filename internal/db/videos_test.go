@@ -468,7 +468,7 @@ func TestVideoLocationsAllowSameVideoInMultipleDirectories(t *testing.T) {
 		t.Fatalf("unexpected video id by second location: got %d want %d", videoID, video.ID)
 	}
 
-	if err := HideVideoLocationsByIDs(ctx, []int64{locA.ID}); err != nil {
+	if _, err := HideVideoLocationsByIDs(ctx, []int64{locA.ID}); err != nil {
 		t.Fatalf("hide loc a: %v", err)
 	}
 	if err := ReconcileAllVideoPaths(ctx); err != nil {
@@ -485,7 +485,7 @@ func TestVideoLocationsAllowSameVideoInMultipleDirectories(t *testing.T) {
 		t.Fatalf("unexpected remaining locations: %#v", visible.Locations)
 	}
 
-	if err := HideVideoLocationsByIDs(ctx, []int64{locB.ID}); err != nil {
+	if _, err := HideVideoLocationsByIDs(ctx, []int64{locB.ID}); err != nil {
 		t.Fatalf("hide loc b: %v", err)
 	}
 	if err := ReconcileAllVideoPaths(ctx); err != nil {

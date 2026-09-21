@@ -403,7 +403,7 @@ func TestUpdateDirectoryPathKeepsExistingVideoLocations(t *testing.T) {
 	}
 
 	// A scan that no longer finds the file still hides it.
-	if err := HideVideoLocationsByIDs(ctx, []int64{loc.ID}); err != nil {
+	if _, err := HideVideoLocationsByIDs(ctx, []int64{loc.ID}); err != nil {
 		t.Fatalf("hide stale location: %v", err)
 	}
 	stale, err := ListVideos(ctx, 20, 0, nil, "", "recent", nil, []int64{dir.ID})

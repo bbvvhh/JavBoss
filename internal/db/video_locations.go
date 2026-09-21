@@ -81,18 +81,23 @@ func UpsertVideoLocation(ctx context.Context, videoID, directoryID int64, relati
 	return &saved, nil
 }
 
-// HideVideoLocationsByIDs marks file locations as deleted without deleting video metadata.
-func HideVideoLocationsByIDs(ctx context.Context, ids []int64) error {
+// HideVideoLocationsByIDs marks file locations as deleted without deleting video metadata,
+// returning how many rows were actually changed.
+//
+// 返回值是「真实改动行数」而不是「请求的 id 数」—— 请求里可能带着早就删掉的 id，
+// 接口层要如实报告，不能把没发生的事算进去。这个过程不接触文件系统。
+func HideVideoLocationsByIDs(ctx context.Context, ids []int64) (int64, error) {
 	if len(ids) == 0 {
-		return nil
+		return 0, nil
 	}
-	if err := common.DB.WithContext(ctx).
+	result := common.DB.WithContext(ctx).
 		Model(&models.VideoLocation{}).
 		Where("id IN ?", ids).
-		Update("is_delete", true).Error; err != nil {
-		return fmt.Errorf("hide video locations: %w", err)
+		Update("is_delete", true)
+	if result.Error != nil {
+		return 0, fmt.Errorf("hide video locations: %w", result.Error)
 	}
-	return nil
+	return result.RowsAffected, nil
 }
 
 // GetVideoIDByPath returns the video ID for an active directory path + relative path.

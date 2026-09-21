@@ -347,6 +347,21 @@ async function buildWeb() {
   await runCommand("npm", ["run", "build"], { cwd: WEB_DIR });
 }
 
+// 移动端前端。后端把它挂在 /m/ 下，并按 Cookie → UA 的顺序做界面分流。
+async function buildMobileWeb() {
+  if (process.env.SKIP_MOBILE_WEB_BUILD === "1") {
+    console.log("[release] SKIP_MOBILE_WEB_BUILD=1，跳过移动端构建");
+    return;
+  }
+  if (!fs.existsSync(path.join(MOBILE_WEB_DIR, "package.json"))) {
+    console.log("[release] 未找到 web-mobile，跳过移动端构建");
+    return;
+  }
+  console.log("[release] 构建移动端 web-mobile/dist");
+  await ensureNpmDeps(MOBILE_WEB_DIR);
+  await runCommand("npm", ["run", "build"], { cwd: MOBILE_WEB_DIR });
+}
+
 async function runFrontendDev() {
   await ensureNpmDeps(WEB_DIR);
   console.log("[dev] 启动前端开发服务器");
@@ -597,16 +612,108 @@ async function createReleaseConfig(outDir) {
   await fsp.writeFile(configPath, configContent);
 }
 
-async function createZip(outDir, zipPath) {
-  const hasZip = await commandExists("zip");
-  if (!hasZip) {
-    throw new Error("需要 zip 命令，请先安装 zip");
+// 归档时按名字决定权限，而不是读 stat。
+//
+// 发布目录常常落在 NTFS/DrvFs 上（例如 WSL 里的 /mnt/d）：那里 chmod 是空操作，
+// 所有文件都显示成 0777，或者干脆没有执行位。只用 stat 会让解压出来的
+// javboss / internal/bin/* 丢掉执行位，装完直接跑不起来。
+//
+// 唯一的策略来源是下面 python 脚本里的 mode_for()，这里只共享可执行文件清单。
+const ZIP_EXECUTABLE_FILES = [
+  "javboss",
+  "javboss.exe",
+  "javboss.command",
+  "start.sh",
+];
+
+// 没有 zip 命令时用 python 打包（精简 Linux 发行版常常不带 zip，python3 一般都有）。
+// 显式写入 unix 权限位：create_system=3 才会让 unzip 认 external_attr。
+async function createZipWithPython(python, outDir, zipPath) {
+  const script = `
+import os, sys, zipfile
+src, out = sys.argv[1], sys.argv[2]
+base = os.path.dirname(src)
+top = os.path.basename(src.rstrip(os.sep))
+executables = ${JSON.stringify(ZIP_EXECUTABLE_FILES)}
+
+def mode_for(arc, is_dir):
+    if is_dir:
+        return 0o755
+    # arc 是 zip 内的完整路径，带顶层目录名，判定前要先剥掉
+    rel = arc[len(top) + 1:] if arc.startswith(top + "/") else arc
+    if rel in executables or rel.startswith("internal/bin/"):
+        return 0o755
+    return 0o644
+
+if os.path.exists(out):
+    os.remove(out)
+count = 0
+with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+    for root, dirs, files in os.walk(src):
+        dirs.sort()
+        files.sort()
+        for name in dirs + files:
+            path = os.path.join(root, name)
+            if os.path.islink(path):
+                continue
+            arc = os.path.relpath(path, base).replace(os.sep, "/")
+            is_dir = os.path.isdir(path)
+            if is_dir:
+                arc += "/"
+            info = zipfile.ZipInfo(arc, date_time=(1980, 1, 1, 0, 0, 0))
+            info.create_system = 3
+            info.external_attr = (mode_for(arc.rstrip("/"), is_dir) << 16) | (0x10 if is_dir else 0)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            if is_dir:
+                zf.writestr(info, b"")
+            else:
+                with open(path, "rb") as fh:
+                    zf.writestr(info, fh.read())
+                count += 1
+print("  写入 %d 个文件，%.1f MB" % (count, os.path.getsize(out) / 1048576.0))
+`;
+  // PYTHONIOENCODING: Windows 上 Python 3 默认按 ANSI 代码页（如 cp936）写 stdout，
+  // 中文进度行会变成乱码；Node 自己写的是 UTF-8，所以这里统一成 UTF-8。
+  await runCommand(python, ["-c", script, outDir, zipPath], {
+    env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+  });
+}
+
+// 命令存在 ≠ 命令能用。Windows 上 `where python3` 会命中 Microsoft Store 的
+// 占位程序（WindowsApps\python3.exe），它并不会执行 Python，而是直接退出 9009
+// 或弹商店。所以回退路径必须真的跑一次探针再决定用哪个解释器。
+async function usableCommand(cmd, probeArgs) {
+  try {
+    await runCommandCapture(cmd, probeArgs, { stdio: ["ignore", "ignore", "ignore"] });
+    return true;
+  } catch {
+    return false;
   }
-  const baseDir = path.dirname(outDir);
-  const baseName = path.basename(outDir);
-  // zip updates existing archives and otherwise retains removed bundled files.
+}
+
+// 找一个真正可用的 Python 解释器：优先 python3（Linux/macOS），退回 python（Windows）。
+async function findPython() {
+  for (const candidate of ["python3", "python"]) {
+    if (await usableCommand(candidate, ["-V"])) return candidate;
+  }
+  return "";
+}
+
+async function createZip(outDir, zipPath) {
   await fsp.rm(zipPath, { force: true });
-  await runCommand("zip", ["-rq", zipPath, baseName], { cwd: baseDir });
+  if (await commandExists("zip")) {
+    const baseDir = path.dirname(outDir);
+    const baseName = path.basename(outDir);
+    await runCommand("zip", ["-rq", zipPath, baseName], { cwd: baseDir });
+    return;
+  }
+  const python = await findPython();
+  if (python) {
+    console.log(`[release] 未找到 zip 命令，改用 ${python} 打包（并写入 unix 权限位）`);
+    await createZipWithPython(python, outDir, zipPath);
+    return;
+  }
+  throw new Error("打包 zip 需要 zip 命令，或一个可用的 python3/python");
 }
 
 async function runRelease(choice, version) {
@@ -643,6 +750,13 @@ async function runRelease(choice, version) {
   await buildWeb();
   console.log("[release] 复制前端资源");
   await copyDir(path.join(WEB_DIR, "dist"), path.join(outDir, "web", "dist"));
+  await buildMobileWeb();
+  if (fs.existsSync(path.join(MOBILE_WEB_DIR, "dist"))) {
+    console.log("[release] 复制移动端资源");
+    await copyDir(path.join(MOBILE_WEB_DIR, "dist"), path.join(outDir, "web-mobile", "dist"));
+  } else {
+    console.log("[release] 没有 web-mobile/dist，本次发布不含移动端界面（后端会自动只提供 PC 版）");
+  }
   await buildBackendRelease(choice, outDir);
   console.log("[release] 复制 ffprobe");
   await copyBundledFfprobe(choice, outDir);

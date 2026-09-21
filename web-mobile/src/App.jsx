@@ -11,7 +11,6 @@ import JavFilterSheet from '@/components/JavFilterSheet'
 import JavListPage from '@/components/JavListPage'
 import JavQuickChips from '@/components/JavQuickChips'
 import JavTagSheet from '@/components/JavTagSheet'
-import PlaceholderPage from '@/components/PlaceholderPage'
 import PlayerPage from '@/components/PlayerPage'
 import QuickChips from '@/components/QuickChips'
 import RenamePage from '@/components/RenamePage'
@@ -19,12 +18,15 @@ import ScrapeSettingsPage from '@/components/ScrapeSettingsPage'
 import ScreenshotsPage from '@/components/ScreenshotsPage'
 import { SearchBar, SearchHints } from '@/components/SearchPanel'
 import { SelectionActionBar, SelectionTopBar } from '@/components/SelectionBar'
+import MePage from '@/components/settings/MePage'
+import SettingsSubPage, { isSettingsPage } from '@/components/settings/registry'
 import TagEditorSheet from '@/components/TagEditorSheet'
 import Toast from '@/components/Toast'
 import TopBar from '@/components/TopBar'
 import VideoGrid from '@/components/VideoGrid'
 import useInfiniteScroll from '@/hooks/useInfiniteScroll'
 import useOverlayBack from '@/hooks/useOverlayBack'
+import useStackBack from '@/hooks/useStackBack'
 import { useStore } from '@/store'
 import { zh } from '@/utils/i18n'
 
@@ -34,7 +36,6 @@ export default function App() {
   const [javFilterOpen, setJavFilterOpen] = useState(false)
   const [javTagOpen, setJavTagOpen] = useState(false)
   const [javFavoriteOpen, setJavFavoriteOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [tagTargets, setTagTargets] = useState(null)
   const [ready, setReady] = useState(false)
 
@@ -93,7 +94,7 @@ export default function App() {
       ) : (
         <TopBar
           onOpenSearch={() => setSearchOpen(true)}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={() => useStore.getState().pushPage('me')}
         />
       )}
 
@@ -198,37 +199,11 @@ export default function App() {
       <OverlayBack open={javFilterOpen} onClose={() => setJavFilterOpen(false)} />
       <OverlayBack open={javTagOpen} onClose={() => setJavTagOpen(false)} />
       <OverlayBack open={javFavoriteOpen} onClose={() => setJavFavoriteOpen(false)} />
-      <OverlayBack open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <OverlayBack open={Boolean(player)} onClose={() => useStore.getState().closePlayer()} />
       <OverlayBack open={selectionMode} onClose={() => useStore.getState().exitSelection()} />
-      <OverlayBack open={Boolean(topPage)} onClose={() => useStore.getState().popPage()} />
+      <StackBack depth={pages.length} onPop={() => useStore.getState().popPage()} />
 
-      {settingsOpen ? (
-        <PlaceholderPage
-          icon="gear"
-          title={zh('我的', 'Settings')}
-          description={zh(
-            '设置页（14 个入口）在 P2 阶段实现；首屏刻意不常显设置，只保留右上角这一个入口。',
-            'The settings area (14 entries) lands in P2.'
-          )}
-          items={[
-            zh(
-              '媒体库：目录管理 / 扫描 / 视频标签 / JAV 标签 / 收藏夹',
-              'Library: directories, scan, tags, favourites'
-            ),
-            zh('播放与刮削：播放设置 / 刮削设置 / 下载器', 'Playback & scraping settings'),
-            zh(
-              '系统与集成：全局设置 / 存储连接 / 扩展令牌',
-              'System: global settings, storage, tokens'
-            ),
-            zh(
-              '账号：修改密码 / 切换到电脑版 / 退出登录',
-              'Account: password, switch to desktop, sign out'
-            ),
-          ]}
-          onClose={() => setSettingsOpen(false)}
-        />
-      ) : null}
+      {topPage?.type === 'me' ? <MePage onClose={() => useStore.getState().popPage()} /> : null}
 
       {topPage?.type === 'rename' ? (
         <RenamePage video={topPage.payload} onClose={() => useStore.getState().popPage()} />
@@ -253,6 +228,10 @@ export default function App() {
         <JavIdolPage idol={topPage.payload} onClose={() => useStore.getState().popPage()} />
       ) : null}
 
+      {topPage && isSettingsPage(topPage.type) ? (
+        <SettingsSubPage page={topPage} onClose={() => useStore.getState().popPage()} />
+      ) : null}
+
       {player ? (
         <PlayerPage
           key={`${player.video?.id}-${player.video?.location_id || 0}`}
@@ -269,5 +248,20 @@ export default function App() {
 /** 让浮层响应 Android 物理返回键；本身不渲染任何东西。 */
 function OverlayBack({ open, onClose }) {
   useOverlayBack(open, onClose)
+  return null
+}
+
+/**
+ * 页面栈的返回键支持。
+ *
+ * 深度必须交给 `useStackBack` 而不是 `useOverlayBack`：后者只处理开 / 关两态，
+ * 深度变化时它的 `history.back()` 会在**新**监听器挂上之后才派发 popstate，
+ * 于是刚压入的页面立刻被弹掉 —— 症状是「点子页面的入口没反应」。
+ *
+ * 也不能给每个子页单独注册一个 OverlayBack —— 父层（「我的」）的历史记录会
+ * 被内层的 `history.back()` 一起弹掉，表现就是「从任意子页返回，设置区直接消失」。
+ */
+function StackBack({ depth, onPop }) {
+  useStackBack(depth, onPop)
   return null
 }

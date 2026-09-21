@@ -147,7 +147,7 @@ func TestBrowseDirectoriesDisabledAndAuthentication(t *testing.T) {
 	if recorder.Code != http.StatusNotImplemented {
 		t.Fatalf("disabled status = %d", recorder.Code)
 	}
-	protected := NewRouter("", testAuthService(t))
+	protected := NewRouter("", "", testAuthService(t))
 	recorder = httptest.NewRecorder()
 	protected.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/directories/browse", nil))
 	if recorder.Code != http.StatusUnauthorized {

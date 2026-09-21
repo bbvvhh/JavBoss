@@ -45,6 +45,8 @@ const (
 	defaultDevelopmentPort = 17654
 	defaultReleasePort     = 8655
 	defaultStaticDir       = "web/dist"
+	// 手机端前端。与 PC 前端并列，由 NewRouter 挂在 /m/ 下。
+	defaultMobileStaticDir = "web-mobile/dist"
 )
 
 func main() {
@@ -206,7 +208,11 @@ func main() {
 		logger.Fatalf("initialize authentication: %v", err)
 	}
 
-	router := server.NewRouter(resolveStaticDir(defaultStaticDir), authService)
+	router := server.NewRouter(
+		resolveStaticDir(defaultStaticDir),
+		resolveStaticDir(defaultMobileStaticDir),
+		authService,
+	)
 	serverPort := defaultDevelopmentPort
 	if portOverride > 0 {
 		serverPort = portOverride

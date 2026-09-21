@@ -76,7 +76,7 @@ func TestAuthLoginProtectsRoutesAndLogoutRevokesSession(t *testing.T) {
 
 func TestNewRouterAuthenticationBoundary(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	router := NewRouter("", testAuthService(t))
+	router := NewRouter("", "", testAuthService(t))
 
 	health := performRequest(router, http.MethodGet, "/healthz", nil, "", nil)
 	if health.Code != http.StatusOK {
