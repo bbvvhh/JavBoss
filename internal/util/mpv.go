@@ -3,7 +3,6 @@ package util
 import (
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -62,7 +61,9 @@ func findMPVPath() (string, error) {
 		if candidate == "" {
 			continue
 		}
-		if resolved, err := exec.LookPath(candidate); err == nil {
+		// 走 findExecutableInPath 而不是 exec.LookPath：后者在 Termux/Android 上
+		// 会因 faccessat2 被 seccomp 以 SIGSYS 杀掉（详见 findExecutableByStat 注释）。
+		if resolved, err := findExecutableInPath(candidate); err == nil {
 			return resolved, nil
 		}
 	}

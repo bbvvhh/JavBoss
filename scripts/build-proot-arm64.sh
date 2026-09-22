@@ -38,6 +38,7 @@
 #   release/javboss-<VERSION>-linux-arm64-proot/          可直接解压进 proot 的目录
 #   release/javboss-<VERSION>-linux-arm64-proot.tar.gz    发布包
 #   release/javboss-<VERSION>-linux-arm64-proot.tar.gz.sha256
+if grep -q $'\r' "$0" 2>/dev/null; then printf '\n[proot-arm64] 错误：本脚本是 CRLF 行尾（Windows 编辑器保存或复制粘贴导致），bash 会把 set 的选项读成 "pipefail\\r" 并报 invalid option name。\n  修复：sed -i "s/\\r$//" %s\n  或：  dos2unix %s\n  然后重新运行。\n\n' "$0" "$0" >&2; exit 1; fi # crlf-guard：整行单行书写并以注释结尾，保证脚本自身在 CRLF 下也能被解析
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -400,6 +401,15 @@ if [[ "${SKIP_MOBILE_WEB:-0}" != "1" ]]; then
 fi
 
 say "准备输出目录 $OUT_DIR"
+# 安全网：如果你把 data/（javboss.db、缩略图、封面）放进了输出目录，下面的 rm -rf 会把它删掉。
+# 这里先挪到旁边，打包完成后再放回；data/ 不进归档（归档保持可复现，数据库请单独拷到手机）。
+DATA_BACKUP=""
+if [[ -d "$OUT_DIR/data" ]]; then
+  DATA_BACKUP="$OUT_DIR.data.bak"
+  say "检测到 $OUT_DIR/data，先挪到 $(basename "$DATA_BACKUP")，打包后再放回"
+  rm -rf "$DATA_BACKUP"
+  mv "$OUT_DIR/data" "$DATA_BACKUP"
+fi
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR/internal/bin"
 
@@ -477,6 +487,11 @@ if [[ "${SKIP_ZIP:-0}" != "1" ]]; then
   sha256_of "$ZIP_ARCHIVE" >"$ZIP_ARCHIVE.sha256"
 fi
 rm -rf "$STAGE_DIR"
+
+if [[ -n "$DATA_BACKUP" && -d "$DATA_BACKUP" ]]; then
+  mv "$DATA_BACKUP" "$OUT_DIR/data"
+  say "已把原有 data/ 放回 $OUT_DIR/data（未打进 tar.gz / zip）"
+fi
 
 say "完成："
 say "  目录：$OUT_DIR"

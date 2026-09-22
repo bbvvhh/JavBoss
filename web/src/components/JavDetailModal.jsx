@@ -8,6 +8,7 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import RemoveCircleOutlineRoundedIcon from '@mui/icons-material/RemoveCircleOutlineRounded'
 import StarBorderRoundedIcon from '@mui/icons-material/StarBorderRounded'
 import StarRoundedIcon from '@mui/icons-material/StarRounded'
+import SubtitlesRoundedIcon from '@mui/icons-material/SubtitlesRounded'
 import { IconButton, Popper, Rating, Tooltip } from '@mui/material'
 
 import {
@@ -23,6 +24,7 @@ import { StudioCard } from '@/components/JavStudioView'
 import VideoGrid from '@/components/VideoGrid'
 import { ScreenshotPreviewModal } from '@/components/VideoScreenshotsModal'
 import { isUserJavTag } from '@/constants/jav'
+import { useStore } from '@/store'
 import { getVideoDisplayName } from '@/utils/display'
 import { getIdolDisplayName } from '@/utils/javIdol'
 import { zh } from '@/utils/i18n'
@@ -504,6 +506,8 @@ export default function JavDetailModal({
   const code = String(item?.code || '').trim()
   const idols = useMemo(() => (Array.isArray(item?.idols) ? item.idols : []), [item?.idols])
   const videos = useMemo(() => (Array.isArray(item?.videos) ? item.videos : []), [item?.videos])
+  // 操作栏的字幕入口：作品可能有多个视频文件，交给弹窗内部选择/切换。
+  const openSubtitleManager = useStore((state) => state.openSubtitleManager)
   const studioName = String(studio?.name || '').trim()
   const seriesName = String(series?.name || '').trim()
   const favoriteCount = Number(item?.favorite_count) || 0
@@ -833,6 +837,28 @@ export default function JavDetailModal({
                   <MovieEdit sx={{ fontSize: 16 }} />
                   {zh('编辑', 'Edit')}
                 </button>
+                <Tooltip
+                  title={
+                    videos.length > 0
+                      ? zh('搜索 / 管理这个作品的字幕', 'Search and manage subtitles')
+                      : zh(
+                          '该作品还没有关联视频，无法搜索字幕',
+                          'No related video to attach subtitles to'
+                        )
+                  }
+                >
+                  <span>
+                    <button
+                      type="button"
+                      disabled={videos.length === 0}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:border-gray-400 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => openSubtitleManager?.(videos)}
+                    >
+                      <SubtitlesRoundedIcon sx={{ fontSize: 16 }} />
+                      {zh('字幕', 'Subtitles')}
+                    </button>
+                  </span>
+                </Tooltip>
                 <JavFavoriteRatingEditor
                   value={favoriteRating}
                   saving={favoriteRatingSaving}

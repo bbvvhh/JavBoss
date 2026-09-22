@@ -270,7 +270,48 @@ func FFmpegToolRelativePath() string {
 }
 
 func findFFBinaryPath(name string) (string, error) {
-	return findFFBinaryPathWithLookup(name, exec.LookPath)
+	return findFFBinaryPathWithLookup(name, findExecutableByStat)
+}
+
+// findExecutableByStat 是 exec.LookPath 的替代实现：本项目只会用绝对路径探测
+// 内置（internal/bin）或已下载（data/tools）的 ffmpeg / ffprobe，不需要 PATH 查找。
+//
+// 不用 exec.LookPath 的原因是它会经 internal/syscall/unix.Eaccess 走
+// faccessat2(AT_EACCESS)。Android（Termux）的 seccomp 过滤器对该 syscall 直接
+// SECCOMP_RET_TRAP，进程会以 "SIGSYS: bad system call" 崩溃 —— 扫库时解析 ffprobe
+// 正好会走到这里，所以必须在源头换掉。
+func findExecutableByStat(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("%s is a directory", path)
+	}
+	// Windows 没有 unix 执行位，os.Stat 一律返回 0666；照搬 exec.LookPath 的语义，
+	// 只要文件存在就接受（exec_lookup_test.go 里对这条已有同样的平台判断）。
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
+		return "", fmt.Errorf("%s is not executable", path)
+	}
+	return path, nil
+}
+
+// findExecutableInPath 等价于 exec.LookPath 的 PATH 查找分支，但不经过
+// faccessat2：带路径分隔符时直接查该文件，否则依次查 $PATH 下的同名文件。
+func findExecutableInPath(name string) (string, error) {
+	if strings.ContainsRune(name, os.PathSeparator) {
+		return findExecutableByStat(name)
+	}
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			dir = "."
+		}
+		candidate := filepath.Join(dir, name)
+		if resolved, err := findExecutableByStat(candidate); err == nil {
+			return resolved, nil
+		}
+	}
+	return "", fmt.Errorf("executable file %q not found in $PATH", name)
 }
 
 func findFFBinaryPathWithLookup(name string, lookup func(string) (string, error)) (string, error) {

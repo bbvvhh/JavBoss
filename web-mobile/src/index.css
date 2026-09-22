@@ -120,6 +120,57 @@ button {
   background: #000;
 }
 
+/* video.js 自带控制条在移动端整体隐藏：进度、时间、播放 / 暂停、静音、倍速、
+   画中画、全屏全部由自绘的 PlayerControls 接管（真机反馈「原进度条还是显示了」）。
+   用 CSS 隐藏而不是删组件，是为了保住 video.js 的 controls_ 状态 ——
+   单击画面播放 / 暂停仍然由它负责。 */
+.stage .vjs-control-bar {
+  display: none !important;
+}
+
+/* 兜底：万一控制条被别处重新显示出来，进度控制也不许可见 / 可交互，
+   避免出现两条进度条。 */
+.stage .vjs-progress-control {
+  pointer-events: none;
+}
+
+.stage .vjs-progress-control .vjs-progress-holder,
+.stage .vjs-progress-control .vjs-mouse-display,
+.stage .vjs-progress-control .vjs-time-tooltip {
+  display: none !important;
+}
+
+/* 长按加速手势：长按不要选中文字、不要弹系统菜单（iOS），也不让浏览器把
+   按住拖动当成滚动手势接管（一接管就会收到 pointercancel，手势途中断掉）。 */
+.stage {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* 画面手势成立期间（长按加速 / 拖动调进度），画面上的大播放按钮不可交互，
+   避免同一次滑动被两处响应。自绘控制条由 React 侧的 blocked 属性挡住。 */
+.stage.gesture-active .vjs-big-play-button {
+  pointer-events: none;
+}
+
+/* 全屏下自绘控制条跟随 video.js 的控制条一起自动隐藏（点一下画面又会出来）。
+   用的是 video.js 自己维护的类：vjs-has-started / vjs-user-inactive / vjs-playing，
+   所以显隐时机和控制条完全一致。video.js 自带的控制条已经被隐藏，
+   这些类只用来驱动我们自己的那一条。
+   例外：手势进行中（jb-gesture）强制可见 —— 拖动调进度时必须能看到目标位置。 */
+.stage .video-js.jb-seek-overlay .jb-controls {
+  transition: opacity 0.35s ease;
+}
+
+.stage
+  .video-js.jb-seek-overlay.vjs-has-started.vjs-user-inactive.vjs-playing:not(.jb-gesture)
+  .jb-controls {
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* 字幕只显示文字，不要黑底。
    video.js 用 vtt.js 渲染 cue，会在内层 div 上写死行内
    `background-color: rgba(0,0,0,0.8)`，普通规则覆盖不了行内样式，必须 !important；

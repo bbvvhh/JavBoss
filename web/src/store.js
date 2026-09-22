@@ -222,9 +222,17 @@ export const useStore = create((set, get) => ({
   javTab: 'list', // list | idol | studio | series; download is accepted for legacy URLs
   // 「字幕」管理弹窗当前打开的视频。VideoCard 出现在视频列表、JAV 列表、JAV 详情等
   // 多条渲染链里，逐层透传一个新回调不划算，而这个状态也不进 URL。
-  subtitleManagerVideo: null,
-  openSubtitleManager: (video) => set({ subtitleManagerVideo: video || null }),
-  closeSubtitleManager: () => set({ subtitleManagerVideo: null }),
+  // 从作品详情页进来时会带上该作品的全部关联视频，弹窗里再选具体哪一个。
+  subtitleManagerVideos: [],
+  openSubtitleManager: (target) =>
+    set({
+      subtitleManagerVideos: Array.isArray(target)
+        ? target.filter(Boolean)
+        : target
+          ? [target]
+          : [],
+    }),
+  closeSubtitleManager: () => set({ subtitleManagerVideos: [] }),
   javPage: 1,
   javPageSize: JAV_PAGE_SIZE,
   javGridColumns: JAV_GRID_COLUMNS_AUTO,

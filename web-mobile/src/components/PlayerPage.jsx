@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import videojs from 'video.js'
 import 'video.js/dist/video-js.css'
 
@@ -10,11 +11,16 @@ import {
 } from '@/api'
 import BottomSheet from '@/components/BottomSheet'
 import Icon from '@/components/Icons'
+import PlayerControls from '@/components/PlayerControls'
 import SubtitleSheet from '@/components/SubtitleSheet'
+import usePlayerGesture from '@/hooks/usePlayerGesture'
+import { formatBoostSpeed } from '@/utils/boostSpeed'
 import { selectPlaybackSource, startBrowserPlayback } from '@/utils/browserPlayback'
 import { getVideoDisplayName, parseVideoFingerprint, formatBytes } from '@/utils/display'
 import { formatDuration, formatReleaseDate } from '@/utils/format'
+import { isBoostEnabled, readBoostSpeed } from '@/utils/playbackPrefs'
 import { clearProgress, readProgress, writeProgress } from '@/utils/progress'
+import { formatSeekClock, formatSeekDelta } from '@/utils/seekMath'
 import { getErrorMessage } from '@/utils/errors'
 import { zh } from '@/utils/i18n'
 
@@ -27,6 +33,9 @@ export default function PlayerPage({ video, onClose }) {
   const subtitleTracksRef = useRef([])
   const activeSubtitleRef = useRef(null)
   const applySubtitleRef = useRef(null)
+  // 长按加速前的常驻倍速，松手时还原（长按是临时加速，不写任何持久设置）。
+  const baseRateRef = useRef(1)
+  const [player, setPlayer] = useState(null)
   const [status, setStatus] = useState('loading')
   const [errorText, setErrorText] = useState('')
   const [resumeAt, setResumeAt] = useState(() => readProgress(video?.id))
@@ -131,6 +140,85 @@ export default function PlayerPage({ video, onClose }) {
     }
   }, [video?.id])
 
+  // 长按加速的本机偏好读一次就够：播放页是全屏浮层，要改设置必须先关掉它。
+  const [boostEnabled] = useState(() => isBoostEnabled())
+  const [boostSpeed] = useState(() => readBoostSpeed())
+  const {
+    boost,
+    seek,
+    active: gestureActive,
+    handlers: stageGestures,
+  } = usePlayerGesture({
+    boostEnabled,
+    speed: boostSpeed,
+    // 拖动画面调进度只需要当前时长和当前位置：换算跟屏幕宽度无关
+    // （见 seekMath.seekDragSecondsPerPixel）。时长还没出来时返回 null，
+    // 手势会被放弃，否则会把 NaN 塞进 currentTime。
+    getSeekContext: () => {
+      const current = playerRef.current
+      const duration = Number(current?.duration())
+      if (!Number.isFinite(duration) || duration <= 0) return null
+      return { duration, currentTime: Number(current.currentTime()) || 0 }
+    },
+    onBoostStart: () => {
+      const current = playerRef.current
+      if (!current) return
+      baseRateRef.current = current.playbackRate()
+      // 加速期间保持控制条可见，别让用户松手后不知道发生了什么。
+      current.userActive(true)
+    },
+    onBoostSpeed: (value) => playerRef.current?.playbackRate(value),
+    // 松手即还原：长按只做临时加速，常驻倍速仍然由控制条上的倍速按钮管。
+    onBoostEnd: () => playerRef.current?.playbackRate(baseRateRef.current),
+    // 拖画面调进度：拖动期间不动视频，松手才定位一次（避免反复重新加载）。
+    onSeekCommit: (time) => playerRef.current?.currentTime(time),
+  })
+
+  // 全屏状态：全屏时所有浮层都要搬进播放器元素里。
+  // 全屏元素是 .video-js，它外面的内容浏览器一律不渲染 —— 不搬进去，
+  // 全屏下就既没有自绘进度条，也没有倍速 / 进度提示（真机反馈）。
+  const [fullscreen, setFullscreen] = useState(false)
+
+  useEffect(() => {
+    if (!player) return undefined
+    const sync = () => {
+      const value = Boolean(player.isFullscreen())
+      setFullscreen(value)
+      // 给 .video-js 打个标记，CSS 用来把 video.js 自己的控制条抬起来给
+      // 自绘进度条让位、并让自绘条跟随控制条自动隐藏（见 index.css）。
+      if (value) player.addClass('jb-seek-overlay')
+      else player.removeClass('jb-seek-overlay')
+    }
+    player.on('fullscreenchange', sync)
+    sync()
+    return () => player.off('fullscreenchange', sync)
+  }, [player])
+
+  // 手势进行中时强制显示自绘控制条：全屏下它会跟随控制条一起自动隐藏，
+  // 但拖动调进度的时候必须能看到目标位置。
+  useEffect(() => {
+    if (!player) return undefined
+    if (gestureActive) player.addClass('jb-gesture')
+    else player.removeClass('jb-gesture')
+    return undefined
+  }, [player, gestureActive])
+
+  // 画面手势进行中（或长按计时中）时，尽量别让浏览器把竖向滑动识别成
+  // 「亮度 / 音量」这类内置手势。
+  //
+  // 必须用原生监听 + passive: false：React 的合成事件对 touchmove 是 passive 的，
+  // 在 onTouchMove 里 preventDefault 不生效。舞台本身不可滚动（touch-action: none
+  // 已经关掉了滚动 / 缩放），所以这里 preventDefault 没有副作用。
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage) return undefined
+    const block = (event) => {
+      if (event.cancelable) event.preventDefault()
+    }
+    stage.addEventListener('touchmove', block, { passive: false })
+    return () => stage.removeEventListener('touchmove', block)
+  }, [])
+
   useEffect(() => {
     const stage = stageRef.current
     if (!video || !stage) return undefined
@@ -151,9 +239,34 @@ export default function PlayerPage({ video, onClose }) {
       fill: true,
       playsinline: true,
       playbackRates: [0.5, 1, 1.25, 1.5, 2],
+      // 不要「原生视频全屏」。
+      //
+      // iPhone / 部分 iOS 浏览器上不支持元素全屏，video.js 会把 <video> 交给
+      // 系统播放器全屏（requestFullscreenHelper_ 的第 2 条分支）。那时是系统
+      // 控制条在接管：自定义控制条、自绘进度条、画面手势全部收不到事件 ——
+      // 真机表现就是「全屏下长按不出倍速提示，滑动却在拖系统进度条」。
+      // 置 true 后这类设备改用 full-window 模式（CSS 铺满视口 + 锁页面滚动），
+      // 自定义控制条与手势全部保留；支持元素全屏的浏览器不受影响，
+      // 依旧走真正的全屏。
+      preferFullWindow: true,
     })
     playerRef.current = player
+    setPlayer(player)
     applySubtitleRef.current?.()
+
+    // video.js 自带控制条整个被 CSS 藏掉了（见 index.css），这里再把它里面的
+    // 进度控制 disable + 摘掉，属于双保险：
+    // - disable() 会摘掉它自己的 mousedown / touchstart / touchmove 监听，
+    //   包括上一次交互残留在 document 上的 touchmove ——「滑动顺手把进度条
+    //   拖走」的其中一条路径就是从那儿来的；
+    // - removeChild（而不是 dispose，dispose 之后 video.js 内部 reset 会在
+    //   已销毁实例上调 update() 抛错）确保它不会因为任何原因重新出现。
+    const controlBar = player.getChild('controlBar')
+    const progressControl = controlBar?.getChild('progressControl')
+    if (progressControl && controlBar) {
+      progressControl.disable()
+      controlBar.removeChild(progressControl)
+    }
 
     const persist = () => {
       const current = player.currentTime()
@@ -213,6 +326,7 @@ export default function PlayerPage({ video, onClose }) {
       player.off('ended', onEnded)
       removeSubtitleTracks()
       playerRef.current = null
+      setPlayer(null)
       try {
         player.dispose()
       } catch {
@@ -236,6 +350,40 @@ export default function PlayerPage({ video, onClose }) {
   const released = formatReleaseDate(jav?.release_unix)
 
   const metaItems = [resolution, sizeText, duration, released].filter(Boolean)
+
+  const overlayPills = (
+    <>
+      {/* 提示互斥：一次只出现一种。倍速优先 —— 万一有多指等边界情况留下过进度
+          提示，也不会出现「长按加速时还挂着进度提示」。 */}
+      {boost ? (
+        // 长按加速的倍速指示：只放右上角一个小胶囊。
+        // 不做居中面板、不写操作文案 —— 画面本身就那么点大，提示越少越好，
+        // 手势说明放在「播放设置」页里。
+        <div className="pointer-events-none absolute right-2 top-2 z-10 rounded-full bg-black/60 px-2.5 py-1 text-[12px] font-semibold tabular-nums text-white">
+          {formatBoostSpeed(boost)}
+        </div>
+      ) : seek ? (
+        // 拖动画面调进度：左上角显示目标时间与增量
+        <div className="pointer-events-none absolute left-2 top-2 z-10 rounded-full bg-black/60 px-2.5 py-1 text-[12px] font-semibold tabular-nums text-white">
+          {formatSeekClock(seek.time)} · {formatSeekDelta(seek.delta)}
+        </div>
+      ) : null}
+    </>
+  )
+
+  // 全屏时浮层必须搬进播放器元素内部，否则不在渲染树里、一律不显示
+  //（全屏元素是 .video-js，它外面的内容浏览器不渲染）。
+  const portalTarget = fullscreen ? player?.el?.() : null
+
+  const controls = (
+    <PlayerControls
+      player={player}
+      disabled={status === 'error'}
+      overlay={Boolean(portalTarget)}
+      blocked={gestureActive}
+      fullscreen={fullscreen}
+    />
+  )
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#0b0f16]">
@@ -262,7 +410,36 @@ export default function PlayerPage({ video, onClose }) {
         </button>
       </header>
 
-      <div ref={stageRef} className="stage relative aspect-video w-full flex-none bg-black" />
+      <div className="relative flex-none">
+        {/* video.js 实例由上面的 effect 直接 append 进这个 div，所以它自己不能有
+            React 子节点，否则两边会争同一个父节点。手势 HUD 因此放在兄弟层。
+
+            `gesture-active`：手势一旦成立（长按加速 / 拖动调进度），控制条整体
+            禁用交互。这样同一次滑动不可能既被我们处理、又碰到控制条上的
+            进度条或音量 —— 真机上出现过「滑动既改倍速又跳进度」。 */}
+        <div
+          ref={stageRef}
+          className={`stage aspect-video w-full bg-black ${gestureActive ? 'gesture-active' : ''}`}
+          {...stageGestures}
+        />
+
+        {/* 非全屏时浮层挂在舞台上的兄弟层（video.js 元素自己不能有 React 子节点） */}
+        {portalTarget ? null : overlayPills}
+      </div>
+
+      {/* 全屏时把浮层（提示 + 自绘控制条）整体搬进播放器元素内部：
+          全屏元素是 .video-js，它外面的内容浏览器一律不渲染 —— 不搬进去，
+          全屏下既看不到倍速 / 进度提示，也没有控制条（真机反馈的
+          「全屏下没有倍速提示、滑动却在动进度条」就是这个原因）。 */}
+      {portalTarget
+        ? createPortal(
+            <>
+              {overlayPills}
+              {controls}
+            </>,
+            portalTarget
+          )
+        : controls}
 
       <div className="min-h-0 flex-1 overflow-y-auto bg-[#eff1f4]">
         <section className="border-b border-[#e6e8ec] bg-white px-3.5 py-3.5">

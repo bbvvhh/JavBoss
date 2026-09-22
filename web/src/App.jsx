@@ -286,7 +286,7 @@ export default function App() {
     createDirectory,
     updateDirectory,
     deleteDirectory,
-    subtitleManagerVideo,
+    subtitleManagerVideos,
     closeSubtitleManager,
   } = useStore()
 
@@ -4553,7 +4553,7 @@ export default function App() {
       />
 
       <VideoSubtitleModal
-        video={subtitleManagerVideo}
+        videos={subtitleManagerVideos}
         onClose={closeSubtitleManager}
         onToast={showCenterToast}
       />

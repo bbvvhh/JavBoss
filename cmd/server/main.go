@@ -75,6 +75,10 @@ func main() {
 	logging.SetLogger(logger)
 	logging.SetColorEnabled(false)
 
+	// Must run before anything performs a TLS handshake: crypto/x509 caches its
+	// root pool on first use (Termux/Android have no CA bundle where Go looks).
+	util.EnsureSystemCertificateBundle()
+
 	bootstrapCfg, err := clientpkg.LoadBootstrapConfig(baseDir)
 	if err != nil {
 		logger.Fatalf("load bootstrap config: %v", err)
@@ -253,7 +257,11 @@ func main() {
 		displayURL := fmt.Sprintf("http://localhost:%d", actualPort)
 		openURL := displayURL
 		printReleaseStartupHint(displayURL)
-		if err := util.OpenFile(openURL); err != nil {
+		if runtimeconfig.DisableDesktopIntegration() {
+			// Termux / proot / 容器里没有 xdg-open，也不该在这里调 LookPath
+			// （Android 的 seccomp 会因 faccessat2 直接 SIGSYS 杀掉进程）。
+			logger.Printf("desktop integration disabled; open %s manually", displayURL)
+		} else if err := util.OpenFile(openURL); err != nil {
 			logger.Printf("open browser failed: %v", err)
 		}
 		startReleaseKeyboardControls(ctx, stop, openURL, logger)

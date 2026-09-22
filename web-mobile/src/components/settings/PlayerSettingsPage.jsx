@@ -3,9 +3,17 @@ import { useState } from 'react'
 import Icon from '@/components/Icons'
 import SettingsPage from '@/components/settings/SettingsPage'
 import Switch from '@/components/form/Switch'
+import Segmented from '@/components/form/Segmented'
 import { FormCard, FormRow, InfoRow, SectionTitle, buttonClass } from '@/components/form/Field'
 import ConfirmDialog from '@/components/ConfirmDialog'
+import { BOOST_SPEED_CHOICES, formatBoostSpeed } from '@/utils/boostSpeed'
 import { configFlag, configString } from '@/utils/config'
+import {
+  isBoostEnabled,
+  readBoostSpeed,
+  setBoostEnabled,
+  setBoostSpeed,
+} from '@/utils/playbackPrefs'
 import {
   clearAllProgress,
   countProgress,
@@ -35,6 +43,8 @@ export default function PlayerSettingsPage({ onClose }) {
   const showToast = useStore((state) => state.showToast)
 
   const [resume, setResume] = useState(() => isResumeEnabled())
+  const [boost, setBoost] = useState(() => isBoostEnabled())
+  const [boostRate, setBoostRate] = useState(() => readBoostSpeed())
   const [records, setRecords] = useState(() => countProgress())
   const [clearOpen, setClearOpen] = useState(false)
 
@@ -62,6 +72,22 @@ export default function PlayerSettingsPage({ onClose }) {
     showToast(zh(`已清除 ${removed} 条观看记录`, `Cleared ${removed} watch record(s)`))
   }
 
+  const toggleBoost = (next) => {
+    setBoostEnabled(next)
+    setBoost(next)
+    showToast(
+      next
+        ? zh('已开启长按倍速', 'Long-press boost on')
+        : zh('已关闭长按倍速', 'Long-press boost off')
+    )
+  }
+
+  const changeBoostRate = (value) => {
+    const speed = Number(value)
+    setBoostSpeed(speed)
+    setBoostRate(speed)
+  }
+
   return (
     <SettingsPage
       title={zh('播放设置', 'Player')}
@@ -85,6 +111,46 @@ export default function PlayerSettingsPage({ onClose }) {
               checked={resume}
               onChange={toggleResume}
               label={zh('记住播放进度', 'Remember playback position')}
+            />
+          }
+        />
+
+        <FormRow
+          layout="inline"
+          label={zh('长按倍速播放', 'Long-press speed boost')}
+          hint={zh(
+            '按住画面满 1 秒开始加速，继续上下滑动换档（向上加速、向下减速），松手恢复原速；不到 1 秒就横向滑动则是调整播放进度。单击播放 / 暂停不受影响。',
+            'Hold the video for one second to speed up, slide up or down to change the rate, release to go back to normal. Sliding sideways sooner than that scrubs the timeline instead.'
+          )}
+          control={
+            <Switch
+              checked={boost}
+              onChange={toggleBoost}
+              label={zh('长按倍速播放', 'Long-press speed boost')}
+            />
+          }
+        />
+
+        <FormRow
+          label={zh('长按加速到', 'Boost speed')}
+          hint={
+            boost
+              ? zh(
+                  '长按满 1 秒进入加速时的倍速；继续上下滑动可以在这个档位上下调整。',
+                  'The rate applied after holding for one second; slide up or down to adjust around it.'
+                )
+              : zh('先打开「长按倍速播放」。', 'Turn on long-press boost first.')
+          }
+          control={
+            <Segmented
+              value={boostRate}
+              onChange={changeBoostRate}
+              disabled={!boost}
+              label={zh('长按加速到', 'Boost speed')}
+              options={BOOST_SPEED_CHOICES.map((speed) => ({
+                value: speed,
+                label: formatBoostSpeed(speed),
+              }))}
             />
           }
         />
@@ -133,6 +199,11 @@ export default function PlayerSettingsPage({ onClose }) {
             {zh(
               '手机没有键盘，也无法驱动电脑上的 MPV，所以「默认播放器 / MPV 快捷键 / 窗口尺寸 / 置顶 / 复用窗口」这些设置不在移动端显示。视频用浏览器直接播放，支持直连与 HLS 自动回退。',
               'A phone has no keyboard and cannot drive MPV on the computer, so desktop-only settings (default player, MPV hotkeys, window size, always-on-top, window reuse) are not shown here. Video plays in the browser with automatic direct-to-HLS fallback.'
+            )}
+            <br />
+            {zh(
+              '进度条是本机自绘的：拖动时显示目标时间、松手才跳转，另有 ±10s 按钮；拖动中手指停住 0.5 秒会进入精细模式（位移放大 10 倍）。直接在画面上横向滑动同样能调进度，竖向滑动不做任何事。',
+              'The progress bar is drawn by this app: dragging shows the target time and only seeks on release, with ±10s buttons. Holding still for 0.5s while dragging switches to fine mode (10× finer). Sliding sideways on the picture also scrubs the timeline, while a vertical slide does nothing.'
             )}
           </span>
         </p>

@@ -9,7 +9,7 @@
 | 路径 | 说明 |
 | --- | --- |
 | `javboss` | 主程序（静态链接 aarch64，release 模式） |
-| `start.sh` | 启动脚本，已设好本环境需要的开关 |
+| `start.sh` | 启动脚本：设好本环境需要的开关，并自动挑选 CA 证书包（`SSL_CERT_FILE`） |
 | `web/dist/` | PC 版前端静态资源（后端直接托管） |
 | `web-mobile/dist/` | **手机版前端**，挂在 `/m/` 下；手机浏览器打开根路径会自动切过去 |
 | `internal/bin/ffmpeg`、`internal/bin/ffprobe` | arm64 版，用于探测/截图/转码 |
@@ -28,6 +28,11 @@
 Ubuntu / Alpine 等其它 glibc 或 musl rootfs 同理适用（主程序是静态 musl 链接，不看 rootfs 的 libc）。
 Android 侧才有的差异（共享存储绑定、Android 的 proot 实现）请按下面步骤操作。
 
+Termux **原生**运行的正确性是通过 syscall 层面验证的，不是靠真机：用 `qemu -strace` 抓启动路径，
+修复前的 `exec.LookPath` 会发出 `faccessat2(AT_FDCWD,…,X_OK,AT_EACCESS)`（Termux 上会被 seccomp
+以 SIGSYS 杀掉），修复后启动路径的 `faccessat2` 次数为 **0**，ffprobe/ffmpeg 的解析改成
+`newfstatat`。真机（Android 上的 seccomp 策略）仍建议你首次运行时确认一下。
+
 ## 前提
 
 1. 手机是 arm64：Termux 里 `uname -m` 应输出 `aarch64`。
@@ -44,6 +49,40 @@ Android 侧才有的差异（共享存储绑定、Android 的 proot 实现）请
 
    ```sh
    ls /etc/ssl/certs/ca-certificates.crt || apt update && apt install -y ca-certificates tzdata
+   ```
+
+   **新版本也会自动探测**：启动时若发现 Go 的常规 CA 路径都没有内容，会依次尝试 Termux 的
+   `$PREFIX/etc/tls/cert.pem`、`$PREFIX/etc/ssl/certs/ca-certificates.crt` 以及 Android 14+
+   的系统 CA 目录 `/apex/com.android.conscrypt/cacerts`，命中就通过 `SSL_CERT_FILE` /
+   `SSL_CERT_DIR` 交给 Go（日志里会打印 `tls: system CA bundle is missing; using ...`）。
+   想手动指定就用 `JAVBOSS_CA_BUNDLE=/path/to/ca.pem`（或自己 export `SSL_CERT_FILE`，优先级最高）。
+
+5. **rootfs 里最好有可用的 DNS**。proot-distro 装出来的 Debian 常常把 `/etc/resolv.conf`
+   留在 systemd-resolved 的 stub 上，内容是 `nameserver ::1`，而 proot 里没人监听
+   `[::1]:53`，于是会报：
+
+   ```
+   dial tcp: lookup api-shoulei-ssl.xunlei.com on [::1]:53: read udp [::1]:38656->[::1]:53: read: connection refused
+   ```
+
+   **JavBoss 现在会自动兜底**：启动时检查 `/etc/resolv.conf`，发现没有条目或只有 loopback
+   条目，就改用内置公共 DNS（223.5.5.5 / 119.29.29.29 / 1.1.1.1），日志里会打印
+   `dns: no usable system resolver (...); falling back to [...]`。所以这条通常不用手动修了。
+
+   想自己修 / 想用内网 DNS，仍然可以改 rootfs 的解析配置（必须 `rm` 再写，符号链接会导致改完又被改回去）：
+
+   ```sh
+   ls -l /etc/resolv.conf && cat /etc/resolv.conf
+   rm -f /etc/resolv.conf
+   printf 'nameserver 223.5.5.5\nnameserver 119.29.29.29\n' > /etc/resolv.conf
+   curl -sS -o /dev/null -w '%{http_code}\n' 'https://api-shoulei-ssl.xunlei.com/oracle/subtitle?name=ABP-001'   # 期望 200
+   ```
+
+   也可以用环境变量强制指定（优先级最高，支持 `IP`、`IP:端口`、逗号分隔多个）：
+
+   ```sh
+   export JAVBOSS_DNS=223.5.5.5
+   ./start.sh
    ```
 
 ## 安装与启动
@@ -145,20 +184,76 @@ javboss-<版本>-linux-arm64-proot/
   内核，正常可用；万一报锁失败，删掉该文件重试。
 - **端口**：改 `config.toml` 里的 `port`，或 `./start.sh --port 9000`。
 - **刮削慢**：扫描要逐个文件跑 ffprobe，元数据刮削要联网；建议 Wi-Fi + 充电时做首次全库扫描。
+- **联网/字幕报错**：先看服务端日志 `logs/javboss.log`。字幕失败会带出底层原因：
+  - `x509: certificate signed by unknown authority` → 缺 CA 证书，见「前提 4」；
+  - `lookup … on [::1]:53: … connection refused` → 系统 DNS 不可用；新版本会自动兜底到公共 DNS（前提 5），
+    日志里能看到 `dns: … falling back to …`，也可以用 `JAVBOSS_DNS` 指定；
+  - `proxyconnect tcp` → 容器里的 `HTTP(S)_PROXY` 指向了不可达的代理；
+  - 浏览器能上网但这里报错，通常就是上面三条之一（浏览器走 Android 系统网络，容器走 rootfs 自己的配置）。
 
-## 可选：不装 proot 直接试
+## 直接在 Termux 原生运行（不用 proot）
 
-本包是**静态链接**的 Linux aarch64 二进制，理论上可以直接在 Termux 原生环境里跑
-（Termux 是 bionic 而非 glibc，动态链接的程序因此跑不了，静态的不受影响）：
+本包是**静态链接**的 Linux aarch64 二进制，不依赖 glibc，因此可以直接在 Termux 原生环境跑：
 
 ```sh
-# 在 Termux 原生环境（不是 proot 内）
-mkdir -p ~/javboss && cd ~/javboss
-tar -xzf /sdcard/Download/javboss-<版本>-linux-arm64-proot.tar.gz --strip-components=1
+# Termux 原生环境（不是 proot 内）
+mkdir -p ~/software/javboss && cd ~/software/javboss
+unzip -q /sdcard/Download/javboss-<版本>-linux-arm64-proot.zip     # 或 tar -xzf ... --strip-components=1
 ./start.sh
 ```
 
-若 Android 拦住了 exec（部分机型/系统版本会），就回到上面的 proot 方案。
+**注意 DNS（Termux 原生特有，新版本已自动处理）**：Android 没有 `/etc/resolv.conf`，而 Termux 自带的
+Go 是按 Termux 前缀打过补丁的，第三方静态二进制不是。所以老版本在这里会报
+`lookup … on [::1]:53: … connection refused`（Go 用了内置默认的 127.0.0.1/[::1]）。新版本启动时会检测到
+这种情况并自动改用内置公共 DNS，日志里会打印 `dns: no usable system resolver (...) falling back to [...]`。
+要指定自己的 DNS（比如局域网 DNS）用 `export JAVBOSS_DNS=192.168.1.1` 再启动。
+
+**注意 CA 证书（同样是 Termux 原生特有，新版本已自动处理）**：Android 14+ 把系统 CA 挪到了
+`/apex/com.android.conscrypt/cacerts`，而 `/system/etc/security/cacerts` 只有**用 `GOOS=android` 编译**
+的二进制才会读（我们是 linux 静态二进制，不读）；Termux 自己的证书包又在 `$PREFIX/etc/` 下。于是 Go 的根
+证书池是空的，HTTPS 报 `x509: certificate signed by unknown authority`（curl 却是好的，因为 OpenSSL 走的是
+另一套路径）。
+
+先装证书包：
+
+```sh
+pkg install ca-certificates          # Termux 原生
+# 或（rootfs 里）
+apt update && apt install -y ca-certificates tzdata
+```
+
+**包内的 `start.sh` 已经会自动挑证书**：它按「系统标准路径 → `$PREFIX/etc/tls/cert.pem` → Termux 固定路径」的顺序选第一个**非空**的证书文件并 `export SSL_CERT_FILE`（一个文件都没有时退而指向 `/apex/com.android.conscrypt/cacerts` 或 `/system/etc/security/cacerts`），启动时会打印
+
+```
+[javboss] SSL_CERT_FILE=/data/data/com.termux/files/usr/etc/tls/cert.pem
+```
+
+新版本二进制自己也会解析证书并计数兜底（日志 `tls: ...`），两者互为保险。手动覆盖用
+`JAVBOSS_CA_BUNDLE=/path/to/ca.pem ./start.sh`，或者自己 `export SSL_CERT_FILE=...`（脚本见到已有值就不改）。
+
+> ⚠️ 无论哪种方式，**不要指向不存在的文件** —— 指向空路径会屏蔽系统默认路径，HTTPS 会彻底不通。
+
+**注意 Android 的 seccomp 坑（本包已修复）**：Termux 的 targetSdk 是 28，Android 的 seccomp
+过滤器会对 `faccessat2(2)` 直接 `SECCOMP_RET_TRAP`（不是返回 ENOSYS）。而 Go 的
+`os/exec.LookPath` 在候选文件存在时会走 `AT_EACCESS → faccessat2`，被 trap 后整个进程以
+
+```
+SIGSYS: bad system call
+```
+
+崩溃 —— 旧版本会在启动（尝试 `xdg-open` 开浏览器）或扫库（解析 ffprobe）时随机炸掉。修复方式：
+
+- `runtimeconfig` 自动识别 Termux（`TERMUX_VERSION` 或 `PREFIX` 含 `com.termux`），
+  自动关闭桌面集成 / mpv / 改用 ffmpeg 截图；
+- 解析 ffprobe、ffmpeg、mpv 一律改用 `os.Stat` 判断可执行位（`newfstatat`），不再经过
+  `exec.LookPath`；
+- `util.OpenFile` / `util.RevealFile` 在禁用桌面集成时直接返回，不再调用 `xdg-open`。
+
+所以现在 `./start.sh`（或直接 `./javboss`）在 Termux 原生命中即可；`start.sh` 里的三个环境变量
+只是显式声明，Termux 下就算不设也会被自动识别。
+
+> 未修复的旧包在 Termux 原生环境的表现就是启动后打印 `SIGSYS: bad system call` + 一大串
+> goroutine 栈，栈顶是 `Eaccess → os/exec.findExecutable → LookPath`。
 
 ## 重新打包
 

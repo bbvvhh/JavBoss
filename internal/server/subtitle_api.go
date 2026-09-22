@@ -133,10 +133,11 @@ func searchVideoSubtitles(c *gin.Context) {
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
 	defer cancel()
-	results, err := subtitle.Search(ctx, service.ConfiguredSubtitleAPIURL(c.Request.Context()), keyword)
+	apiURL := service.ConfiguredSubtitleAPIURL(c.Request.Context())
+	results, err := subtitle.Search(ctx, apiURL, keyword)
 	if err != nil {
-		logging.Error("subtitle search failed (keyword=%s): %v", keyword, err)
-		respondLocalizedError(c, http.StatusBadGateway, "字幕搜索失败，请检查接口地址或网络", "Subtitle search failed. Check the API URL or your network.")
+		logging.Error("subtitle search failed (keyword=%s, api=%s): %v", keyword, apiURL, err)
+		respondSubtitleTransportError(c, err, "字幕搜索失败", "Subtitle search failed")
 		return
 	}
 
@@ -209,8 +210,8 @@ func searchSubtitlesOnce(c *gin.Context) {
 	defer cancel()
 	results, err := subtitle.Search(ctx, apiURL, keyword)
 	if err != nil {
-		logging.Error("subtitle endpoint test failed: %v", err)
-		respondLocalizedError(c, http.StatusBadGateway, "字幕接口测试失败，请检查地址或网络", "The subtitle endpoint test failed. Check the URL or your network.")
+		logging.Error("subtitle endpoint test failed (api=%s): %v", apiURL, err)
+		respondSubtitleTransportError(c, err, "字幕接口测试失败", "The subtitle endpoint test failed")
 		return
 	}
 	items := make([]subtitleSearchItem, 0, len(results))
@@ -290,7 +291,7 @@ func downloadVideoSubtitle(c *gin.Context) {
 		case errors.Is(err, subtitle.ErrUnsupportedFormat):
 			respondLocalizedError(c, http.StatusUnsupportedMediaType, "暂不支持该字幕格式", "That subtitle format is not supported")
 		default:
-			respondLocalizedError(c, http.StatusBadGateway, "字幕下载失败", "Failed to download the subtitle")
+			respondSubtitleTransportError(c, err, "字幕下载失败", "Failed to download the subtitle")
 		}
 		return
 	}
@@ -364,6 +365,51 @@ func attachSubtitleToMPVIfPlaying(c *gin.Context, videoID, subtitleID int64) boo
 		return false
 	}
 	return attached
+}
+
+// respondSubtitleTransportError reports an outbound subtitle request failure with
+// an actionable hint plus the raw reason.
+//
+// A bare "search failed" cannot tell a missing CA bundle from a dead proxy, which
+// makes remote (Termux/proot/NAS) deployments impossible to debug from the UI.
+func respondSubtitleTransportError(c *gin.Context, err error, zhMessage, enMessage string) {
+	zhHint, enHint := describeSubtitleTransportError(err, zhMessage, enMessage)
+	detail := strings.TrimSpace(err.Error())
+	respondLocalizedError(c, http.StatusBadGateway, zhHint+"："+detail, enHint+": "+detail)
+}
+
+func describeSubtitleTransportError(err error, zhFallback, enFallback string) (string, string) {
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "x509") || strings.Contains(message, "certificate"):
+		return "HTTPS 证书校验失败，运行环境缺少 CA 根证书（见 scripts/proot/README.md 前提 4）",
+			"HTTPS certificate verification failed: the runtime is missing CA root certificates"
+	case errors.Is(err, context.DeadlineExceeded),
+		strings.Contains(message, "deadline exceeded"),
+		strings.Contains(message, "timeout"),
+		strings.Contains(message, "timed out"):
+		return "连接字幕接口超时（网络或代理不可达）",
+			"Timed out talking to the subtitle API (network or proxy unreachable)"
+	case strings.Contains(message, "no such host"),
+		strings.Contains(message, "server misbehaving"),
+		strings.Contains(message, "lookup "),
+		strings.Contains(message, "dns"):
+		return "字幕接口域名解析失败（DNS 不可用或域名被拦截）",
+			"DNS lookup for the subtitle API failed (DNS unavailable or the domain is blocked)"
+	case strings.Contains(message, "proxyconnect"), strings.Contains(message, "proxy"):
+		return "代理不可用，请检查「设置 → 网络与代理」以及 HTTP(S)_PROXY 环境变量",
+			"Proxy unreachable; check Settings → Network & proxy and the HTTP(S)_PROXY env vars"
+	case strings.Contains(message, "connection refused"),
+		strings.Contains(message, "connection reset"),
+		strings.Contains(message, "network is unreachable"),
+		strings.Contains(message, "no route to host"):
+		return "无法连接字幕接口（连接被拒绝或网络不可达）",
+			"Cannot reach the subtitle API (connection refused or network unreachable)"
+	case strings.Contains(message, "status"):
+		return "字幕接口返回了错误状态码", "The subtitle API returned an error status"
+	default:
+		return zhFallback, enFallback
+	}
 }
 
 // getVideoSubtitleFile serves a stored subtitle as WebVTT for the web player.

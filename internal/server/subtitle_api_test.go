@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -545,6 +546,32 @@ func waitForSubtitleBatchDone(t *testing.T) subtitleBatchStatusPayload {
 	}
 	t.Fatal("subtitle batch download did not finish in time")
 	return subtitleBatchStatusPayload{}
+}
+
+func TestDescribeSubtitleTransportError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"缺少 CA 证书", errors.New(`Get "https://x/y": x509: certificate signed by unknown authority`), "CA 根证书"},
+		{"DNS 失败", errors.New(`Get "https://x/y": dial tcp: lookup api-shoulei-ssl.xunlei.com: no such host`), "域名解析失败"},
+		{"代理不可用", errors.New(`Get "https://x/y": proxyconnect tcp: dial tcp 127.0.0.1:7890: connect: connection refused`), "代理不可用"},
+		{"超时", context.DeadlineExceeded, "超时"},
+		{"接口状态码", errors.New("subtitle search failed with status 503"), "错误状态码"},
+		{"其它", errors.New("boom"), "字幕搜索失败"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotZH, gotEN := describeSubtitleTransportError(tc.err, "字幕搜索失败", "Subtitle search failed")
+			if !strings.Contains(gotZH, tc.want) {
+				t.Fatalf("zh hint = %q, want it to contain %q", gotZH, tc.want)
+			}
+			if strings.TrimSpace(gotEN) == "" {
+				t.Fatalf("english hint is empty for %v", tc.err)
+			}
+		})
+	}
 }
 
 func TestSubtitleMPVControlWithoutPlayer(t *testing.T) {

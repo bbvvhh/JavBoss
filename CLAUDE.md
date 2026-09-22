@@ -120,6 +120,13 @@ Directory 1─N VideoLocation N─1 Video ──JavID──> Jav (按 Code 唯�
   - 复用窗口的 IPC 路径把最新一条放进 `loadfile` 的 `sub-files` 选项（该 options map 只吃单文件，传数组会让整条 loadfile 失败），其余用 `sub-add <file> auto`，并带重试（刚 loadfile 完 mpv 可能拒绝该命令）。
   - 正在播放时下载字幕会自动挂上去：`service.AttachSubtitleToPlayerIfPlaying` 先用 `mpv.IsPlayingMedia` 比对 mpv 的 `path`，只在播的就是这个视频时才挂；视频卡片上的「字幕」入口走 `POST /videos/:id/subtitles/mpv`（`subtitle_id<=0` 表示关闭字幕）。
 
+### 出站网络：DNS 与 CA（`internal/util/dns.go` / `tls.go`）
+
+- 所有对外请求都走 `internal/util` 的 HTTP 客户端（`DoRequest` / `DefaultHTTPClient` / `NewHTTPClientWithTransport`），它们统一挂了代理探测和**自定义 DNS 解析器**。
+- **DNS**：Unix 上 Go 自带解析器读 `/etc/resolv.conf`，而 Android 没有这个文件，Termux 原生的第三方 Go 二进制会回落到内置的 `127.0.0.1:53` / `[::1]:53` → `connection refused`；极简容器里只剩 `nameserver ::1` 时同样报错。规则（`chooseDNSServers`，纯函数有测试）：显式配置（`SetDNSServer` 或 `JAVBOSS_DNS`）> 系统配置可用（非 loopback）就**不动**它 > 否则兜底到内置公共 DNS（223.5.5.5 / 119.29.29.29 / 1.1.1.1）。`DNSResolver()` 返回 nil 表示「用默认解析器」。
+- **CA 证书**：`crypto/x509` 的根证书池**首次使用时缓存**，所以 `main` 必须在任何 TLS 之前调用 `util.EnsureSystemCertificateBundle()`。判断方式不是"路径有没有内容"，而是**按 Go 的算法真的解析并计数**（`systemRootCount`：目录列表里第一个可读文件 + 所有目录项，与 `root_unix.go` 一致），根证书不足 20 张就依次改试 Termux 的 `$PREFIX/etc/tls/cert.pem`、Android 14+ 的 `/apex/com.android.conscrypt/cacerts`、`/system/etc/security/cacerts` 等，命中就设 `SSL_CERT_FILE`/`SSL_CERT_DIR`（并清掉另一个）。注意 `/system/etc/security/cacerts` **只在 `GOOS=android` 编译时**才在 Go 的默认列表里，我们的 linux 二进制读不到它 —— 这正是"日志说用了系统证书、实际 0 张根证书"的原因。可用 `JAVBOSS_CA_BUNDLE` 指定；Windows/macOS 读系统证书库，直接跳过（`usesFileCertificateStore`）。
+- 两者都会在启动日志里打印判定结果（`dns: ...` / `tls: ...`），排查远端部署问题先看这几行。
+
 ### 前端（`web/`）
 
 - 单 SPA 承载两种模式：`viewMode: 'video' | 'jav'`，JAV 下再分 `javTab: list | idol | studio | series`。状态是 `store.js` 里**一个扁平的 Zustand store**，video/jav 是两套平行的分页与筛选字段。

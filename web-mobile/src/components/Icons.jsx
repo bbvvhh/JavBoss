@@ -142,6 +142,32 @@ const PATHS = {
     />
   ),
   expand: <path d="M4 9V4h5M20 15v5h-5M4 4l6 6M20 20l-6-6" {...STROKE} />,
+  // 播放控制条用的图标（自绘控制条，见 PlayerControls.jsx）
+  pause: (
+    <>
+      <rect x="6.5" y="4.6" width="4" height="14.8" rx="1.4" {...FILLED} />
+      <rect x="13.5" y="4.6" width="4" height="14.8" rx="1.4" {...FILLED} />
+    </>
+  ),
+  volume: (
+    <>
+      <path d="M4 9.5h3L11 6v12L7 14.5H4V9.5Z" {...STROKE} />
+      <path d="M14.5 9.2a4 4 0 0 1 0 5.6M17.2 6.8a7.5 7.5 0 0 1 0 10.4" {...STROKE} />
+    </>
+  ),
+  volumeMute: (
+    <>
+      <path d="M4 9.5h3L11 6v12L7 14.5H4V9.5Z" {...STROKE} />
+      <path d="m15 10 4.5 4.5M19.5 10 15 14.5" {...STROKE} />
+    </>
+  ),
+  pip: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2.2" {...STROKE} />
+      <rect x="12" y="11.5" width="7" height="6" rx="1.4" {...STROKE} />
+    </>
+  ),
+  compress: <path d="M9 4v5H4M15 20v-5h5M4 9l6-6M20 15l-6 6" {...STROKE} />,
   plus: <path d="M12 5.5v13M5.5 12h13" {...STROKE} />,
   minus: <path d="M5.5 12h13" {...STROKE} />,
   // 单向箭头。排序用的双向「sort」图标旋转 180° 之后外形几乎一样，

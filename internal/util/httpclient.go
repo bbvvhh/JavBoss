@@ -3,6 +3,7 @@ package util
 import (
 	"crypto/tls"
 	"errors"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -61,8 +62,15 @@ func NewHTTPClient(timeout time.Duration) *http.Client {
 
 // NewHTTPClientWithTransport allows customizing the base transport while keeping proxy auto-detection.
 func NewHTTPClientWithTransport(timeout time.Duration, configure func(*http.Transport)) *http.Client {
+	dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+	// Only replace the resolver when the system one cannot work (Termux without
+	// /etc/resolv.conf, container with a dead loopback stub) - see dns.go.
+	if resolver := DNSResolver(); resolver != nil {
+		dialer.Resolver = resolver
+	}
 	transport := &http.Transport{
-		Proxy: DetectProxyFunc(),
+		Proxy:       DetectProxyFunc(),
+		DialContext: dialer.DialContext,
 	}
 	if configure != nil {
 		configure(transport)
