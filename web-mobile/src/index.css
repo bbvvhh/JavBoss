@@ -171,6 +171,15 @@ button {
   pointer-events: none;
 }
 
+/* 长按加速（jb-boost）期间控制条一律不显示，包括它里面的进度条。
+   长按是触摸事件，video.js 会把「有触摸」判成用户活跃、把 vjs-user-inactive
+   摘掉，于是上面那条自动隐藏规则失效、进度条又露出来（真机反馈）。这里用
+   更具体的选择器把它按住；倍速提示在右上角的胶囊里，不受影响。 */
+.stage .video-js.jb-boost .jb-controls {
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* 字幕只显示文字，不要黑底。
    video.js 用 vtt.js 渲染 cue，会在内层 div 上写死行内
    `background-color: rgba(0,0,0,0.8)`，普通规则覆盖不了行内样式，必须 !important；

@@ -127,7 +127,11 @@ export default function PlayerModal({
           src: blobUrl,
           default: true,
         },
-        false
+        // manualCleanup 必须是 true：播放源是稍后才 player.src() 设置的，而
+        // video.js 的 setSource → disposeSourceHandler 会调用 cleanupAutoTextTracks()，
+        // 把 manualCleanup=false 的远程字幕轨全部摘掉（界面显示已加载、画面却没有字幕）。
+        // 字幕轨的生命周期由 removeSubtitleTracks() 自己管。
+        true
       )
       subtitleTracksRef.current.push({ element, blobUrl })
       if (element?.track) element.track.mode = 'showing'

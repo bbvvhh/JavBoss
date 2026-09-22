@@ -6,7 +6,7 @@ import Icon from '@/components/Icons'
  * 底部抽屉基座：遮罩 + 圆角面板 + 安全区。
  * 点遮罩或按 Esc 关闭。
  */
-export default function BottomSheet({ open, title, onClose, children, footer, height }) {
+export default function BottomSheet({ open, title, subtitle, onClose, children, footer, height }) {
   useEffect(() => {
     if (!open) return undefined
     const onKeyDown = (event) => {
@@ -36,12 +36,19 @@ export default function BottomSheet({ open, title, onClose, children, footer, he
           <span className="block h-1 w-9 rounded-full bg-zinc-300" />
         </div>
         <div className="flex flex-none items-center border-b border-[#e6e8ec] px-4 pb-2.5 pt-1">
-          <b className="text-[15px] font-semibold">{title}</b>
+          <div className="min-w-0 flex-1">
+            <b className="block truncate text-[15px] font-semibold">{title}</b>
+            {subtitle ? (
+              <span className="block truncate text-[11px] leading-tight text-zinc-400">
+                {subtitle}
+              </span>
+            ) : null}
+          </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="关闭"
-            className="ml-auto p-1 text-zinc-500"
+            className="ml-auto flex-none p-1 text-zinc-500"
           >
             <Icon name="x" size={18} />
           </button>

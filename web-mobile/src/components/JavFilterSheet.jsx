@@ -251,6 +251,77 @@ export default function JavFilterSheet({ open, onClose }) {
     onClose?.()
   }
 
+  // 喜爱度筛选刻意放在抽屉最前面（紧跟排序）：它是用得最频繁的条件之一，
+  // 以前埋在「其它」里最底下（真机反馈找不到）。用滑动条设范围，
+  // 0.5 一档与后端 favorite_rating 的取值保持一致。
+  const favoriteRatingSection = (
+    <div className="mb-5">
+      <SectionTitle>{zh('喜爱度筛选', 'Filter by rating')}</SectionTitle>
+      <div className="rounded-card border border-[#e6e8ec] bg-white px-3.5 py-3">
+        <div className="flex items-center gap-3">
+          <span className="flex-1">
+            <span className="block text-[13.5px] text-zinc-800">
+              {zh('按喜爱度筛选', 'Filter by rating')}
+            </span>
+            <span className="mt-0.5 block text-[11px] text-zinc-400">
+              {draft.favoriteRatingEnabled
+                ? `${draft.favoriteRatingMin} – ${draft.favoriteRatingMax}`
+                : zh('未启用', 'Off')}
+            </span>
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={draft.favoriteRatingEnabled}
+            aria-label={zh('按喜爱度筛选', 'Filter by rating')}
+            onClick={() => patch({ favoriteRatingEnabled: !draft.favoriteRatingEnabled })}
+            className={`relative h-[25px] w-[42px] flex-none rounded-full ${
+              draft.favoriteRatingEnabled ? 'bg-brand' : 'bg-[#d8dbe1]'
+            }`}
+          >
+            <span
+              className={`absolute top-[2.5px] h-5 w-5 rounded-full bg-white shadow transition-all ${
+                draft.favoriteRatingEnabled ? 'right-[2.5px]' : 'left-[2.5px]'
+              }`}
+            />
+          </button>
+        </div>
+        {draft.favoriteRatingEnabled ? (
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              type="range"
+              min={0.5}
+              max={5}
+              step={0.5}
+              value={draft.favoriteRatingMin}
+              onChange={(event) =>
+                patch({
+                  favoriteRatingMin: Math.min(Number(event.target.value), draft.favoriteRatingMax),
+                })
+              }
+              aria-label={zh('最低喜爱度', 'Minimum rating')}
+              className="flex-1 accent-blue-600"
+            />
+            <input
+              type="range"
+              min={0.5}
+              max={5}
+              step={0.5}
+              value={draft.favoriteRatingMax}
+              onChange={(event) =>
+                patch({
+                  favoriteRatingMax: Math.max(Number(event.target.value), draft.favoriteRatingMin),
+                })
+              }
+              aria-label={zh('最高喜爱度', 'Maximum rating')}
+              className="flex-1 accent-blue-600"
+            />
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+
   return (
     <BottomSheet
       open={open}
@@ -319,6 +390,8 @@ export default function JavFilterSheet({ open, onClose }) {
           ))}
         </div>
       </div>
+
+      {favoriteRatingSection}
 
       {activeChips.length ? (
         <div className="mb-5">
@@ -481,73 +554,6 @@ export default function JavFilterSheet({ open, onClose }) {
               />
             </button>
           </label>
-
-          <div className="rounded-card border border-[#e6e8ec] bg-white px-3.5 py-3">
-            <div className="flex items-center gap-3">
-              <span className="flex-1">
-                <span className="block text-[13.5px] text-zinc-800">
-                  {zh('按喜爱度筛选', 'Filter by rating')}
-                </span>
-                <span className="mt-0.5 block text-[11px] text-zinc-400">
-                  {draft.favoriteRatingMin} – {draft.favoriteRatingMax}
-                </span>
-              </span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={draft.favoriteRatingEnabled}
-                aria-label={zh('按喜爱度筛选', 'Filter by rating')}
-                onClick={() => patch({ favoriteRatingEnabled: !draft.favoriteRatingEnabled })}
-                className={`relative h-[25px] w-[42px] flex-none rounded-full ${
-                  draft.favoriteRatingEnabled ? 'bg-brand' : 'bg-[#d8dbe1]'
-                }`}
-              >
-                <span
-                  className={`absolute top-[2.5px] h-5 w-5 rounded-full bg-white shadow transition-all ${
-                    draft.favoriteRatingEnabled ? 'right-[2.5px]' : 'left-[2.5px]'
-                  }`}
-                />
-              </button>
-            </div>
-            {draft.favoriteRatingEnabled ? (
-              <div className="mt-3 flex items-center gap-2">
-                <input
-                  type="range"
-                  min={0.5}
-                  max={5}
-                  step={0.5}
-                  value={draft.favoriteRatingMin}
-                  onChange={(event) =>
-                    patch({
-                      favoriteRatingMin: Math.min(
-                        Number(event.target.value),
-                        draft.favoriteRatingMax
-                      ),
-                    })
-                  }
-                  aria-label={zh('最低喜爱度', 'Minimum rating')}
-                  className="flex-1 accent-blue-600"
-                />
-                <input
-                  type="range"
-                  min={0.5}
-                  max={5}
-                  step={0.5}
-                  value={draft.favoriteRatingMax}
-                  onChange={(event) =>
-                    patch({
-                      favoriteRatingMax: Math.max(
-                        Number(event.target.value),
-                        draft.favoriteRatingMin
-                      ),
-                    })
-                  }
-                  aria-label={zh('最高喜爱度', 'Maximum rating')}
-                  className="flex-1 accent-blue-600"
-                />
-              </div>
-            ) : null}
-          </div>
         </div>
       </div>
 

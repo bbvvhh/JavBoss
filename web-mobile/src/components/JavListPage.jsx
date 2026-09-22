@@ -6,10 +6,11 @@ import IdolCover from '@/components/IdolCover'
 import JavWorkCard from '@/components/JavWorkCard'
 import { JAV_DENSITY_COLUMNS, normalizeIdolSort } from '@/constants/jav'
 import useHideOnScroll from '@/hooks/useHideOnScroll'
-import { useStore } from '@/store'
+import { idolPatchKey, javPatchKey, useStore } from '@/store'
 import { configString } from '@/utils/config'
 import { formatCount } from '@/utils/format'
-import { javPageSize } from '@/utils/javDisplay'
+import { idolDisplayNames, idolMetaParts } from '@/utils/idolDisplay'
+import { javDisplayPrefs, javPageSize } from '@/utils/javDisplay'
 import { zh } from '@/utils/i18n'
 
 const TABS = [
@@ -73,10 +74,21 @@ export default function JavListPage() {
   const jumpToJavWorks = useStore((state) => state.jumpToJavWorks)
   const filters = useStore((state) => state.javFilters)
   const config = useStore((state) => state.config)
+  // 详情页里改过喜爱度 / 收藏夹的条目：列表本身是无限滚动的本地状态，
+  // 用 store 里的增量补丁合并回来，否则返回列表看不到刚改的值。
+  const itemPatches = useStore((state) => state.javItemPatches)
 
   // 每页数量与女优默认排序都来自全局设置（缺省值与 PC 端一致）。
   const pageSize = javPageSize(config, tab)
   const idolSort = normalizeIdolSort(configString(config, 'idol_sort', 'work'))
+  const prefs = javDisplayPrefs(config)
+
+  const decorate = (item, key) => {
+    const patch = itemPatches[key(item?.id)]
+    return patch ? { ...item, ...patch } : item
+  }
+  const decorateWork = (item) => decorate(item, javPatchKey)
+  const decorateIdol = (item) => decorate(item, idolPatchKey)
 
   const [items, setItems] = useState([])
   const [total, setTotal] = useState(0)
@@ -236,7 +248,7 @@ export default function JavListPage() {
                 {items.map((item) => (
                   <JavWorkCard
                     key={item.id}
-                    item={item}
+                    item={decorateWork(item)}
                     density={javDensity}
                     onOpen={(value) => pushPage('jav-detail', value)}
                   />
@@ -250,30 +262,55 @@ export default function JavListPage() {
                   gap: compact ? 6 : 8,
                 }}
               >
-                {items.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => pushPage('jav-idol', item)}
-                    className="overflow-hidden rounded-card border border-[#e6e8ec] bg-white text-left"
-                  >
-                    <IdolCover code={item.cover_code} alt={item.name} className="w-full" />
-                    <div className={compact ? 'px-1 pb-1.5 pt-1' : 'px-1.5 pb-2 pt-1.5'}>
-                      <h3
-                        className={`line-clamp-2 font-semibold leading-[1.3] text-zinc-800 ${
-                          compact ? 'text-[10px]' : 'text-[11px]'
-                        }`}
-                      >
-                        {item.name}
-                      </h3>
-                      {!compact ? (
-                        <p className="mt-0.5 text-[10px] text-zinc-400">
-                          {formatCount(item.work_count)} {zh('部', 'works')}
-                        </p>
-                      ) : null}
-                    </div>
-                  </button>
-                ))}
+                {items.map((item) => {
+                  const idol = decorateIdol(item)
+                  // 「中文名」由后端刮削翻译写入 chinese_name，是否当主名显示
+                  // 由全局设置 jav_idol_prefer_chinese_name 决定（与 PC 端一致）。
+                  const { primary, secondary } = idolDisplayNames(idol, prefs.preferChineseName)
+                  const metaText = idolMetaParts(idol).join(' · ')
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => pushPage('jav-idol', idol)}
+                      className="overflow-hidden rounded-card border border-[#e6e8ec] bg-white text-left"
+                    >
+                      <IdolCover code={idol.cover_code} alt={primary} className="w-full" />
+                      <div className={compact ? 'px-1 pb-1.5 pt-1' : 'px-1.5 pb-2 pt-1.5'}>
+                        <h3
+                          className={`line-clamp-2 font-semibold leading-[1.3] text-zinc-800 ${
+                            compact ? 'text-[10px]' : 'text-[11px]'
+                          }`}
+                        >
+                          {primary}
+                        </h3>
+                        {secondary ? (
+                          <p
+                            className={`mt-0.5 truncate text-zinc-400 ${
+                              compact ? 'text-[9px]' : 'text-[10px]'
+                            }`}
+                          >
+                            {secondary}
+                          </p>
+                        ) : null}
+                        {metaText ? (
+                          <p
+                            className={`mt-0.5 leading-[1.35] text-zinc-500 ${
+                              compact ? 'text-[9px]' : 'text-[10px]'
+                            }`}
+                          >
+                            {metaText}
+                          </p>
+                        ) : null}
+                        {!compact ? (
+                          <p className="mt-0.5 text-[10px] text-zinc-400">
+                            {formatCount(idol.work_count)} {zh('部', 'works')}
+                          </p>
+                        ) : null}
+                      </div>
+                    </button>
+                  )
+                })}
               </div>
             ) : (
               <div className="overflow-hidden rounded-card border border-[#e6e8ec] bg-white">

@@ -293,6 +293,38 @@ export const useStore = create((set, get) => ({
 
   javFilters: { ...EMPTY_JAV_FILTERS },
   setJavFilters: (patch) => set({ javFilters: { ...get().javFilters, ...(patch || {}) } }),
+
+  /**
+   * 作品 / 女优列表的「就地补丁」。
+   *
+   * 列表数据由 JavListPage 自己持有（无限滚动），详情页拿到的是压栈时的那份
+   * 拷贝 —— 在详情页改喜爱度 / 收藏夹之后，返回列表必须能看到新值，否则用户
+   * 会以为没保存。这里按 `类型:id` 记增量，列表渲染时合并即可。
+   *
+   * 键必须带类型前缀：作品与女优是两张表，各自的 id 会撞车。
+   */
+  javItemPatches: {},
+  patchJavItem: (id, patch) => {
+    const key = javPatchKey(id)
+    if (!key || !patch) return
+    set((state) => ({
+      javItemPatches: {
+        ...state.javItemPatches,
+        [key]: { ...state.javItemPatches[key], ...patch },
+      },
+    }))
+  },
+  patchJavIdol: (id, patch) => {
+    const key = idolPatchKey(id)
+    if (!key || !patch) return
+    set((state) => ({
+      javItemPatches: {
+        ...state.javItemPatches,
+        [key]: { ...state.javItemPatches[key], ...patch },
+      },
+    }))
+  },
+
   toggleJavTagId: (id) =>
     set((state) => {
       const list = state.javFilters.tagIds || []
@@ -510,6 +542,18 @@ export function videoKey(video) {
   if (video.location_id) return `loc:${video.location_id}`
   if (video.id) return `vid:${video.id}`
   return ''
+}
+
+/** `javItemPatches` 的键：作品。 */
+export function javPatchKey(id) {
+  const value = Number(id)
+  return Number.isFinite(value) && value > 0 ? `jav:${value}` : ''
+}
+
+/** `javItemPatches` 的键：女优。 */
+export function idolPatchKey(id) {
+  const value = Number(id)
+  return Number.isFinite(value) && value > 0 ? `idol:${value}` : ''
 }
 
 export function videoMeta(video) {

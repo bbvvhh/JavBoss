@@ -388,6 +388,47 @@ export async function fetchJavFavoriteGroups(entityType = 'jav') {
   return Array.isArray(data?.items) ? data.items : []
 }
 
+/**
+ * 后端把四类实体（jav / idol / studio / series）的「单个实体 ↔ 收藏夹」路由
+ * 拆成了不同的路径（见 internal/server/api.go 的 registerJavFavoriteRoutes）：
+ * 只有作品走 `/jav/items/:id`，系列是 `/jav/series/:id`，其余是 `/<type>s/:id`。
+ *
+ * 分支写成字面量模板串是**故意的**：api-safety 测试靠源码里的
+ * `requestJSON('GET', \`...\`)` 形状扫描路由（见文件头注释），把路径塞进
+ * 一个动态拼接的 helper 会让这两条路由脱离白名单检查。
+ */
+export async function fetchJavFavoriteGroupIDs(entityType, id) {
+  const key = encodeURIComponent(id)
+  const type = favoriteEntity(entityType)
+  let data
+  if (type === 'jav') {
+    data = await requestJSON('GET', `/jav/items/${key}/favorite-groups`)
+  } else if (type === 'series') {
+    data = await requestJSON('GET', `/jav/series/${key}/favorite-groups`)
+  } else {
+    data = await requestJSON('GET', `/jav/${type}s/${key}/favorite-groups`)
+  }
+  return Array.isArray(data?.selected_group_ids)
+    ? data.selected_group_ids.map((value) => Number(value)).filter((value) => value > 0)
+    : []
+}
+
+/** 覆盖式保存该实体的收藏夹归属（取消勾选 = 移出）。 */
+export async function replaceJavFavoriteGroups(entityType, id, groupIds) {
+  const key = encodeURIComponent(id)
+  const type = favoriteEntity(entityType)
+  const body = {
+    group_ids: (groupIds || []).map((value) => Number(value)).filter((value) => value > 0),
+  }
+  if (type === 'jav') {
+    await requestOK('PUT', `/jav/items/${key}/favorite-groups`, { body })
+  } else if (type === 'series') {
+    await requestOK('PUT', `/jav/series/${key}/favorite-groups`, { body })
+  } else {
+    await requestOK('PUT', `/jav/${type}s/${key}/favorite-groups`, { body })
+  }
+}
+
 export async function addJavsToFavoriteGroups(javIds, groupIds) {
   return requestJSON('POST', `/jav/items/favorite-groups/add`, {
     body: { jav_ids: javIds, group_ids: groupIds },

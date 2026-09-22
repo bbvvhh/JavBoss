@@ -1,31 +1,51 @@
 import { useEffect, useState } from 'react'
 
-import { fetchJavs } from '@/api'
+import { fetchJavs, updateJavItem } from '@/api'
 import Icon from '@/components/Icons'
 import IdolCover from '@/components/IdolCover'
+import JavFavoritePickerSheet from '@/components/JavFavoritePickerSheet'
 import JavWorkCard from '@/components/JavWorkCard'
 import SubPage from '@/components/SubPage'
 import { useStore } from '@/store'
 import { formatBytes, parseVideoFingerprint } from '@/utils/display'
+import { getErrorMessage } from '@/utils/errors'
 import { formatCount, formatDuration, formatReleaseDate } from '@/utils/format'
 import { zh } from '@/utils/i18n'
+import { formatBirthDateWithAge, formatCup } from '@/utils/idolDisplay'
 
-function Cover({ code, title }) {
+/**
+ * 作品封面。带 `onPlay` 时整张封面就是一个播放按钮：
+ * 点封面 = 用库内第一个文件开始播放（与 PC 端卡片的行为一致）。
+ */
+function Cover({ code, title, onPlay }) {
   const [failed, setFailed] = useState(false)
-  if (!code || failed) {
-    return (
-      <div className="flex aspect-[800/538] w-full items-center justify-center bg-gradient-to-br from-zinc-200 to-zinc-300 text-sm font-semibold text-white/80">
-        {code || zh('无封面', 'No cover')}
-      </div>
-    )
-  }
   return (
-    <img
-      src={`/jav/${encodeURIComponent(code)}/cover`}
-      alt={title || code}
-      onError={() => setFailed(true)}
-      className="aspect-[800/538] w-full bg-zinc-200 object-cover"
-    />
+    <div className="relative w-full bg-zinc-200">
+      {!code || failed ? (
+        <div className="flex aspect-[800/538] w-full items-center justify-center bg-gradient-to-br from-zinc-200 to-zinc-300 text-sm font-semibold text-white/80">
+          {code || zh('无封面', 'No cover')}
+        </div>
+      ) : (
+        <img
+          src={`/jav/${encodeURIComponent(code)}/cover`}
+          alt={title || code}
+          onError={() => setFailed(true)}
+          className="aspect-[800/538] w-full bg-zinc-200 object-cover"
+        />
+      )}
+      {onPlay ? (
+        <button
+          type="button"
+          onClick={onPlay}
+          aria-label={zh('播放第一个文件', 'Play the first local file')}
+          className="absolute inset-0 grid place-items-center bg-black/20 active:bg-black/35"
+        >
+          <span className="grid h-14 w-14 place-items-center rounded-full bg-black/60 text-white shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
+            <Icon name="play" size={22} />
+          </span>
+        </button>
+      ) : null}
+    </div>
   )
 }
 
@@ -48,22 +68,114 @@ function JumpRow({ label, value, onClick }) {
   )
 }
 
+/**
+ * 喜爱度打分。
+ *
+ * 值是 0–5、允许 0.5 步进（后端校验见 internal/db/jav.go），但移动端不做
+ * 半星拖拽 —— 点第 N 颗星 = N 分，再点同一颗 = 清零。既简单又避免了
+ * 手指在窄屏上分辨半颗星的麻烦。
+ */
+function FavoriteRating({ value, saving, onChange }) {
+  const rating = Number(value) || 0
+  const filled = Math.round(rating)
+  return (
+    <div className="mt-2.5 rounded-card border border-[#e6e8ec] bg-white px-3.5 py-3">
+      <div className="flex items-center gap-2">
+        <span className="text-[13.5px] text-zinc-800">{zh('喜爱度', 'Rating')}</span>
+        <span className="ml-auto text-[12px] tabular-nums text-zinc-400">
+          {saving ? zh('保存中…', 'Saving...') : rating > 0 ? rating.toFixed(1) : '—'}
+        </span>
+      </div>
+      <div className="mt-2 flex items-center gap-1">
+        {[1, 2, 3, 4, 5].map((star) => {
+          const active = star <= filled
+          return (
+            <button
+              key={star}
+              type="button"
+              disabled={saving}
+              onClick={() => onChange(rating === star ? 0 : star)}
+              aria-label={zh(`${star} 分`, `${star} point`)}
+              aria-pressed={active}
+              className="grid h-9 w-9 place-items-center rounded-lg active:bg-zinc-100 disabled:opacity-60"
+            >
+              <Icon
+                name={active ? 'starFilled' : 'star'}
+                size={22}
+                className={active ? 'text-amber-400' : 'text-zinc-300'}
+              />
+            </button>
+          )
+        })}
+        {rating > 0 ? (
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => onChange(0)}
+            className="ml-1 rounded-lg px-2 py-1 text-[12px] font-semibold text-zinc-400 active:bg-zinc-100"
+          >
+            {zh('清除', 'Clear')}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 /** JAV 作品详情：元数据 + 本地实际存在的视频文件。 */
 export function JavDetailPage({ jav, onClose }) {
   const openPlayer = useStore((state) => state.openPlayer)
   const openActionSheet = useStore((state) => state.openActionSheet)
   const jumpToJavWorks = useStore((state) => state.jumpToJavWorks)
+  const showToast = useStore((state) => state.showToast)
+  const patchJavItem = useStore((state) => state.patchJavItem)
 
-  const videos = useStore((state) => state.videos)
+  const javId = Number(jav?.id) || 0
   const localVideos = Array.isArray(jav?.videos) ? jav.videos : []
   const idolList = (jav?.idols || []).filter((idol) => idol?.name)
   const tags = (jav?.tags || []).map((tag) => tag.name).filter(Boolean)
+
+  const [rating, setRating] = useState(() => Number(jav?.favorite_rating) || 0)
+  const [ratingSaving, setRatingSaving] = useState(false)
+  const [favoriteCount, setFavoriteCount] = useState(() => Number(jav?.favorite_count) || 0)
+  const [favoriteOpen, setFavoriteOpen] = useState(false)
+  const [actionError, setActionError] = useState('')
+
+  // 每次压入新作品都重新取一次，避免复用到上一条的状态。
+  useEffect(() => {
+    setRating(Number(jav?.favorite_rating) || 0)
+    setFavoriteCount(Number(jav?.favorite_count) || 0)
+    setActionError('')
+  }, [jav])
+
+  const changeRating = async (next) => {
+    if (!javId || ratingSaving) return
+    const value = Math.max(0, Math.min(5, Math.round(Number(next) * 2) / 2))
+    if (value === rating) return
+    const previous = rating
+    setRating(value)
+    setRatingSaving(true)
+    setActionError('')
+    try {
+      const updated = await updateJavItem(javId, { favorite_rating: value })
+      const saved = Number(updated?.favorite_rating)
+      const finalValue = Number.isFinite(saved) ? saved : value
+      setRating(finalValue)
+      patchJavItem(javId, { favorite_rating: finalValue })
+      showToast(zh('喜爱度已保存', 'Rating saved'))
+    } catch (error) {
+      setRating(previous)
+      setActionError(getErrorMessage(error))
+    } finally {
+      setRatingSaving(false)
+    }
+  }
 
   const meta = [
     jav?.release_unix ? formatReleaseDate(jav.release_unix) : '',
     jav?.duration_min ? `${jav.duration_min} ${zh('分钟', 'min')}` : '',
     jav?.is_uncensored === true ? zh('无码', 'Uncensored') : '',
-    jav?.favorite_rating > 0 ? `★ ${Number(jav.favorite_rating).toFixed(1)}` : '',
+    rating > 0 ? `★ ${Number(rating).toFixed(1)}` : '',
   ].filter(Boolean)
 
   return (
@@ -72,7 +184,12 @@ export function JavDetailPage({ jav, onClose }) {
       subtitle={jav?.title}
       onBack={onClose}
     >
-      <Cover code={jav?.code} title={jav?.title} />
+      {/* 点封面 = 播放库内的第一个文件（没有本地文件时封面不可点）。 */}
+      <Cover
+        code={jav?.code}
+        title={jav?.title}
+        onPlay={localVideos.length ? () => openPlayer(localVideos[0], localVideos) : undefined}
+      />
 
       <section className="border-b border-[#e6e8ec] bg-white px-3.5 py-3.5">
         <h3 className="text-[14.5px] font-semibold leading-snug text-zinc-900">
@@ -86,6 +203,45 @@ export function JavDetailPage({ jav, onClose }) {
               </span>
             ))}
           </div>
+        ) : null}
+
+        {/* 加入作品收藏夹：注意这是 JAV 作品本身的收藏夹，
+            与「视频文件的收藏夹」不是一回事。 */}
+        <button
+          type="button"
+          onClick={() => setFavoriteOpen(true)}
+          disabled={!javId}
+          className="mt-2.5 flex w-full items-center gap-2 rounded-card border border-[#e6e8ec] bg-white px-3 py-2.5 text-left active:bg-zinc-50 disabled:opacity-50"
+        >
+          <Icon
+            name={favoriteCount > 0 ? 'starFilled' : 'star'}
+            size={18}
+            className={favoriteCount > 0 ? 'flex-none text-amber-400' : 'flex-none text-zinc-400'}
+          />
+          <span className="min-w-0 flex-1">
+            <span className="block text-[13.5px] font-medium text-zinc-800">
+              {favoriteCount > 0
+                ? zh('已在作品收藏夹', 'In work favorites')
+                : zh('加入作品收藏夹', 'Add to work favorites')}
+            </span>
+            <span className="mt-0.5 block text-[11px] text-zinc-400">
+              {favoriteCount > 0
+                ? zh(`${favoriteCount} 个收藏夹`, `${favoriteCount} group(s)`)
+                : zh(
+                    '只影响数据库里的分组，不动任何视频文件',
+                    'Grouping only — no files are touched'
+                  )}
+            </span>
+          </span>
+          <Icon name="right" size={14} className="flex-none text-zinc-300" />
+        </button>
+
+        <FavoriteRating value={rating} saving={ratingSaving} onChange={changeRating} />
+
+        {actionError ? (
+          <p className="mt-2 rounded-card border border-red-200 bg-red-50 px-3 py-2 text-[12px] leading-relaxed text-red-700">
+            {actionError}
+          </p>
         ) : null}
 
         {/* 片商 / 系列：点一下跳到它们的全部影片 */}
@@ -183,7 +339,7 @@ export function JavDetailPage({ jav, onClose }) {
                 </div>
                 <button
                   type="button"
-                  onClick={() => openPlayer(video, videos)}
+                  onClick={() => openPlayer(video, localVideos)}
                   aria-label={zh('播放', 'Play')}
                   className="grid h-9 w-9 flex-none place-items-center rounded-full bg-brand text-white"
                 >
@@ -209,6 +365,17 @@ export function JavDetailPage({ jav, onClose }) {
           'This page only reads and edits metadata. Use “Rename file” in the video list to touch local files.'
         )}
       </p>
+
+      <JavFavoritePickerSheet
+        open={favoriteOpen}
+        entityType="jav"
+        entity={jav}
+        onClose={() => setFavoriteOpen(false)}
+        onSaved={(ids) => {
+          setFavoriteCount(ids.length)
+          patchJavItem(javId, { favorite_count: ids.length })
+        }}
+      />
     </SubPage>
   )
 }
@@ -217,13 +384,20 @@ export function JavDetailPage({ jav, onClose }) {
 export function JavIdolPage({ idol, onClose }) {
   const pushPage = useStore((state) => state.pushPage)
   const jumpToJavWorks = useStore((state) => state.jumpToJavWorks)
+  const patchJavIdol = useStore((state) => state.patchJavIdol)
 
   const [works, setWorks] = useState([])
   const [worksLoading, setWorksLoading] = useState(true)
+  const [favoriteCount, setFavoriteCount] = useState(() => Number(idol?.favorite_count) || 0)
+  const [favoriteOpen, setFavoriteOpen] = useState(false)
 
   const idolId = Number(idol?.id) || null
   const total = Number(idol?.work_count) || works.length
   const PREVIEW = 6
+
+  useEffect(() => {
+    setFavoriteCount(Number(idol?.favorite_count) || 0)
+  }, [idol])
 
   useEffect(() => {
     if (!idolId) {
@@ -250,8 +424,10 @@ export function JavIdolPage({ idol, onClose }) {
 
   const rows = [
     [zh('作品数', 'Works'), idol?.work_count ? formatCount(idol.work_count) : ''],
+    [zh('生日', 'Birthday'), formatBirthDateWithAge(idol?.birth_date)],
     [zh('身高', 'Height'), idol?.height_cm ? `${idol.height_cm} cm` : ''],
-    [zh('罩杯', 'Cup'), idol?.cup ? `${idol.cup}` : ''],
+    // 罩杯在库里是 1–11 的序号，必须换算成字母，不能直接打印数字。
+    [zh('罩杯', 'Cup'), formatCup(idol?.cup)],
     [zh('胸围', 'Bust'), idol?.bust ? `${idol.bust} cm` : ''],
     [zh('腰围', 'Waist'), idol?.waist ? `${idol.waist} cm` : ''],
     [zh('臀围', 'Hips'), idol?.hips ? `${idol.hips} cm` : ''],
@@ -282,7 +458,35 @@ export function JavIdolPage({ idol, onClose }) {
         />
       </div>
 
+      {/* 收藏这位女优：走的是女优收藏夹（/jav/idols/:id/favorite-groups），
+          和视频文件、作品收藏夹都不相干。 */}
       <section className="bg-white">
+        <button
+          type="button"
+          onClick={() => setFavoriteOpen(true)}
+          disabled={!idolId}
+          className="flex w-full items-center gap-3 border-b border-[#f1f2f5] px-3.5 py-3 text-left active:bg-zinc-50 disabled:opacity-50"
+        >
+          <Icon
+            name={favoriteCount > 0 ? 'starFilled' : 'star'}
+            size={18}
+            className={favoriteCount > 0 ? 'flex-none text-amber-400' : 'flex-none text-zinc-400'}
+          />
+          <span className="min-w-0 flex-1">
+            <span className="block text-[13.5px] font-medium text-zinc-800">
+              {favoriteCount > 0
+                ? zh('已在女优收藏夹', 'In idol favorites')
+                : zh('加入女优收藏夹', 'Add to idol favorites')}
+            </span>
+            <span className="mt-0.5 block text-[11px] text-zinc-400">
+              {favoriteCount > 0
+                ? zh(`${favoriteCount} 个收藏夹`, `${favoriteCount} group(s)`)
+                : zh('只写数据库分组，不动任何文件', 'Grouping only — no files are touched')}
+            </span>
+          </span>
+          <Icon name="right" size={14} className="flex-none text-zinc-300" />
+        </button>
+
         {rows.map(([label, value]) => (
           <div
             key={label}
@@ -337,6 +541,17 @@ export function JavIdolPage({ idol, onClose }) {
           </div>
         )}
       </section>
+
+      <JavFavoritePickerSheet
+        open={favoriteOpen}
+        entityType="idol"
+        entity={idol}
+        onClose={() => setFavoriteOpen(false)}
+        onSaved={(ids) => {
+          setFavoriteCount(ids.length)
+          patchJavIdol(idolId, { favorite_count: ids.length })
+        }}
+      />
     </SubPage>
   )
 }

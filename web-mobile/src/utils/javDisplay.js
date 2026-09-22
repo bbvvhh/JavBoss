@@ -1,4 +1,5 @@
 import { configFlag, configInt, configString } from '@/utils/config'
+import { idolDisplayNames } from '@/utils/idolDisplay'
 
 /**
  * 把 PC 全局设置里**真正对移动端有意义**的显示项映射成移动端的显示偏好。
@@ -20,11 +21,7 @@ export function javDisplayPrefs(config) {
 
 /** 女优名：开启「优先显示中文名」时用中文名，缺失则回退。 */
 export function idolDisplayName(idol, preferChineseName) {
-  if (!idol) return ''
-  const name = String(idol.name || '').trim()
-  const chinese = String(idol.chinese_name || '').trim()
-  if (!preferChineseName) return name || chinese
-  return chinese || name
+  return idolDisplayNames(idol, preferChineseName).primary
 }
 
 /**

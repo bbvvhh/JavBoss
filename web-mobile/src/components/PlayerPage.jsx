@@ -88,7 +88,12 @@ export default function PlayerPage({ video, onClose }) {
           src: blobUrl,
           default: true,
         },
-        false
+        // manualCleanup 必须是 true：播放源是稍后才 player.src() 设置的，而
+        // video.js 的 setSource → disposeSourceHandler 会调用 cleanupAutoTextTracks()，
+        // 把 manualCleanup=false 的远程字幕轨全部摘掉。真机症状正是「界面显示已加载
+        // 字幕、画面上却什么都没有，先关掉再选一次才正常」——第二次挂载发生在
+        // src() 之后，所以侥幸生效。字幕轨的生命周期由 removeSubtitleTracks() 自己管。
+        true
       )
       subtitleTracksRef.current.push({ element, blobUrl })
       if (element?.track) element.track.mode = 'showing'
@@ -164,8 +169,8 @@ export default function PlayerPage({ video, onClose }) {
       const current = playerRef.current
       if (!current) return
       baseRateRef.current = current.playbackRate()
-      // 加速期间保持控制条可见，别让用户松手后不知道发生了什么。
-      current.userActive(true)
+      // 刻意不调 userActive(true)：长按加速只弹右上角那个小胶囊，
+      // 控制条（含进度条）必须保持隐藏（见下面 jb-boost 的说明）。
     },
     onBoostSpeed: (value) => playerRef.current?.playbackRate(value),
     // 松手即还原：长按只做临时加速，常驻倍速仍然由控制条上的倍速按钮管。
@@ -196,12 +201,28 @@ export default function PlayerPage({ video, onClose }) {
 
   // 手势进行中时强制显示自绘控制条：全屏下它会跟随控制条一起自动隐藏，
   // 但拖动调进度的时候必须能看到目标位置。
+  //
+  // 只有「拖动调进度」才需要它 —— 长按加速是另一回事：那时候控制条（进度条）
+  // 必须保持隐藏，只留右上角的倍速胶囊当提示（真机反馈：长按加速时进度条
+  // 会跟着弹出来，看着很乱）。所以这个类由 seek 驱动，不能用 active。
   useEffect(() => {
     if (!player) return undefined
-    if (gestureActive) player.addClass('jb-gesture')
+    if (seek) player.addClass('jb-gesture')
     else player.removeClass('jb-gesture')
     return undefined
-  }, [player, gestureActive])
+  }, [player, seek])
+
+  // 长按加速期间强制隐藏自绘控制条。
+  //
+  // 光靠「不加 jb-gesture」还不够：长按是触摸事件，video.js 自己会把
+  // 「有触摸」判成用户活跃，于是 .vjs-user-inactive 被摘掉，全屏下那条进度
+  // 控制条就露出来了。jb-boost 用一条更高优先级的规则把它按住（见 index.css）。
+  useEffect(() => {
+    if (!player) return undefined
+    if (boost) player.addClass('jb-boost')
+    else player.removeClass('jb-boost')
+    return undefined
+  }, [player, boost])
 
   // 画面手势进行中（或长按计时中）时，尽量别让浏览器把竖向滑动识别成
   // 「亮度 / 音量」这类内置手势。
