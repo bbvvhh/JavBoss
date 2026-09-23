@@ -358,10 +358,7 @@ func findFFBinaryPathWithLookup(name string, lookup func(string) (string, error)
 		}
 	}
 	if name == "ffmpeg" {
-		if runtime.GOOS != "darwin" {
-			return "", fmt.Errorf("%s not found; download it from Tools to %s", name, filepath.ToSlash(FFmpegToolRelativePath()))
-		}
-		return "", fmt.Errorf("%s not found; use the release bundle at internal/bin/%s or download it from Tools to %s", name, binName, filepath.ToSlash(FFmpegToolRelativePath()))
+		return "", fmt.Errorf("%s not found; use the bundled binary at internal/bin/%s or download it from Tools to %s", name, binName, filepath.ToSlash(FFmpegToolRelativePath()))
 	}
 	return "", fmt.Errorf("%s not found; place binary at internal/bin/%s", name, binName)
 }
@@ -376,7 +373,11 @@ func ffBinaryCandidatesForBase(baseDir string, name string, binName string, goos
 	if goos == "darwin" {
 		return []string{bundledPath, downloadedPath}
 	}
-	return []string{downloadedPath}
+	// 非 macOS 的正式发布包不带 ffmpeg（由「工具」面板下载到 data/tools），所以下载路径优先；
+	// 但 Termux / proot 的 linux-arm64 包把 ffmpeg 放在 internal/bin，且该平台没有可下载的
+	// 版本（ffmpegDownloads 里没有 linux/arm64），只能把内置目录作为兜底 —— 否则截图与
+	// HLS 转码在 Termux 上永远找不到 ffmpeg。
+	return []string{downloadedPath, bundledPath}
 }
 
 // ProbeVideo extracts codec/resolution/fps/duration using ffprobe.

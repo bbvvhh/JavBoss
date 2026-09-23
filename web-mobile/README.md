@@ -370,6 +370,7 @@ POST /videos/locations/hide
 | `SelectionBar.jsx` | 多选顶栏 + 批量操作栏 | 批量操作只写数据库 |
 | `TagEditorSheet.jsx` | 标签编辑（单视频 / 批量） | 批量支持追加 / 移除 / 替换 |
 | `ScreenshotsPage.jsx` | 截图查看 / 生成 / 设为封面 / 删除截图 | 只动 `data/` 下的截图 |
+| `VideoPreviewGrid.jsx` | 视频预览图（播放页详情区 / JAV 作品详情页共用）：展示、放大翻页、删除 | 只动 `data/` 下的截图；`allowSetCover` 只在视频模块打开，JAV 侧与 PC 的 `JavScreenshotGrid` 一致只看 / 删 |
 | `ScrapeSettingsPage.jsx` | 单视频：自动 / 手动 / 不刮削 + 番号提取测试 + 关联已有 | 只写数据库 |
 | `RenamePage.jsx` | **唯一会写媒体目录的界面** | diff 预览 + 扩展名锁定 + 二次确认 + 本地重名预检 |
 | `JavQuickChips.jsx` / `JavFilterSheet.jsx` / `JavDensitySheet.jsx` | JAV **作品页**功能栏：**筛选排序** / 随机 / 标签 / 收藏夹（密度在顶栏第 1 行，抽屉是 `JavDensitySheet`） | 只读 |

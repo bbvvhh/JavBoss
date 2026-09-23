@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -206,9 +205,6 @@ func TestFindFFmpegPathOnlyUsesProjectFiles(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if source == "bundled" && runtime.GOOS != "darwin" {
-				want = ""
-			}
 			got, err := findFFmpegPath()
 			if want == "" {
 				if err == nil || got != "" {
@@ -299,6 +295,38 @@ func TestReleaseFFBinaryLookupOnlyUsesExecutableDirectory(t *testing.T) {
 	}
 }
 
+// release 模式（Termux / proot 包的真实形态）下，Linux 包不自带 data/tools 里的下载副本，
+// ffmpeg 只在 internal/bin 里，必须能解析到，否则截图与 HLS 转码都会失败。
+func TestReleaseFFmpegLookupFallsBackToBundledBinary(t *testing.T) {
+	t.Setenv("JAVBOSS_BUILD_MODE", "release")
+	t.Setenv("JAVBOSS_CONTAINER", "")
+	t.Setenv("JAVBOSS_DOCKER", "")
+	t.Chdir(t.TempDir())
+	execPath, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binName := "ffmpeg" + filepath.Ext(FFmpegToolRelativePath())
+	bundledPath := filepath.Join(filepath.Dir(execPath), "internal", "bin", binName)
+	downloadedPath := filepath.Join(filepath.Dir(execPath), FFmpegToolRelativePath())
+
+	var calls []string
+	lookup := func(candidate string) (string, error) {
+		calls = append(calls, candidate)
+		if candidate == bundledPath {
+			return candidate, nil
+		}
+		return "", os.ErrNotExist
+	}
+	got, err := findFFBinaryPathWithLookup("ffmpeg", lookup)
+	if err != nil || got != bundledPath {
+		t.Fatalf("findFFBinaryPathWithLookup() = %q, %v; want %q", got, err, bundledPath)
+	}
+	if len(calls) != 2 || calls[0] != downloadedPath || calls[1] != bundledPath {
+		t.Fatalf("lookup paths = %v, want [%s %s]", calls, downloadedPath, bundledPath)
+	}
+}
+
 func TestDockerFFBinaryLookupOnlyUsesFixedImagePath(t *testing.T) {
 	t.Setenv("JAVBOSS_BUILD_MODE", "release")
 	t.Setenv("JAVBOSS_CONTAINER", "1")
@@ -348,8 +376,8 @@ func TestFFBinaryCandidatesForBasePlatformOrder(t *testing.T) {
 		want []string
 	}{
 		{name: "macOS prioritizes bundled FFmpeg", goos: "darwin", want: []string{bundledPath, downloadedPath}},
-		{name: "Windows only uses tool downloads", goos: "windows", want: []string{downloadedPath}},
-		{name: "Linux only uses tool downloads", goos: "linux", want: []string{downloadedPath}},
+		{name: "Windows prefers tool downloads and falls back to bundled FFmpeg", goos: "windows", want: []string{downloadedPath, bundledPath}},
+		{name: "Linux prefers tool downloads and falls back to bundled FFmpeg", goos: "linux", want: []string{downloadedPath, bundledPath}},
 	}
 
 	for _, tt := range tests {

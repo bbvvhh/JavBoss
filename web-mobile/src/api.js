@@ -159,6 +159,19 @@ export async function fetchVideoScreenshots(id) {
   return Array.isArray(data?.items) ? data.items : []
 }
 
+/**
+ * 一次查询多个视频的截图（JAV 作品详情页要展示该作品全部本地视频的预览图）。
+ * 与 PC 端 `fetchVideoScreenshotsByIds` 用的是同一个接口，上限 100 个视频。
+ */
+export async function fetchVideoScreenshotsByIds(videoIds) {
+  const params = new URLSearchParams()
+  params.set('video_id_list', (videoIds || []).join(','))
+  const data = await requestJSON('GET', `/videos/screenshots?${params.toString()}`, {
+    cache: 'no-store',
+  })
+  return Array.isArray(data?.items) ? data.items : []
+}
+
 export async function createVideoScreenshot(id, { second = 0, locationId } = {}) {
   const params = new URLSearchParams()
   if (locationId) params.set('location_id', String(locationId))

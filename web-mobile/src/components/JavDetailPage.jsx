@@ -6,6 +6,7 @@ import IdolCover from '@/components/IdolCover'
 import JavFavoritePickerSheet from '@/components/JavFavoritePickerSheet'
 import JavWorkCard from '@/components/JavWorkCard'
 import SubPage from '@/components/SubPage'
+import VideoPreviewGrid from '@/components/VideoPreviewGrid'
 import { useStore } from '@/store'
 import { formatBytes, parseVideoFingerprint } from '@/utils/display'
 import { getErrorMessage } from '@/utils/errors'
@@ -358,6 +359,22 @@ export function JavDetailPage({ jav, onClose }) {
           })
         )}
       </section>
+
+      {/* 视频预览图：该作品全部本地文件在播放时保存下来的截图。与 PC 的
+          JavScreenshotGrid 一致 —— 只能看 / 删，不在这里改封面（作品本身有刮削封面）。 */}
+      {localVideos.length ? (
+        <section className="mt-3 bg-white">
+          <div className="flex items-center gap-2 border-b border-[#f1f2f5] px-3.5 py-2.5">
+            <b className="text-[12.5px] text-zinc-700">{zh('视频预览图', 'Preview images')}</b>
+          </div>
+          <div className="px-3.5 py-3">
+            <VideoPreviewGrid
+              videos={localVideos}
+              emptyHint={zh('暂无视频截图', 'No video screenshots')}
+            />
+          </div>
+        </section>
+      ) : null}
 
       <p className="px-3.5 pb-10 pt-4 text-[11px] leading-relaxed text-zinc-400">
         {zh(

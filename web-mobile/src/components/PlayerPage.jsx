@@ -14,8 +14,9 @@ import BottomSheet from '@/components/BottomSheet'
 import Icon from '@/components/Icons'
 import PlayerControls from '@/components/PlayerControls'
 import SubtitleSheet from '@/components/SubtitleSheet'
+import VideoPreviewGrid from '@/components/VideoPreviewGrid'
 import usePlayerGesture from '@/hooks/usePlayerGesture'
-import { useStore } from '@/store'
+import { useStore, videoKey } from '@/store'
 import { formatBoostSpeed } from '@/utils/boostSpeed'
 import { selectPlaybackSource, startBrowserPlayback } from '@/utils/browserPlayback'
 import { getVideoDisplayName, parseVideoFingerprint, formatBytes } from '@/utils/display'
@@ -32,6 +33,7 @@ export default function PlayerPage({ video, onClose }) {
   const stageRef = useRef(null)
   const playerRef = useRef(null)
   const showToast = useStore((state) => state.showToast)
+  const patchVideo = useStore((state) => state.patchVideo)
   // 已挂到 video.js 上的字幕轨（含 blob URL，销毁时必须回收）。
   const subtitleTracksRef = useRef([])
   const activeSubtitleRef = useRef(null)
@@ -186,6 +188,18 @@ export default function PlayerPage({ video, onClose }) {
   // （截完不会自动改封面，是否设为封面仍在截图页里手动决定）。
   const capturingRef = useRef(false)
   const [capturing, setCapturing] = useState(false)
+  // 截图成功后 +1，让下方的「视频预览图」立刻带上新的一张（不必退出播放页）。
+  const [previewToken, setPreviewToken] = useState(0)
+
+  const handleCoverChanged = useCallback(
+    (updated) => {
+      if (!updated?.id) return
+      // 列表缩略图用的是 cover_screenshot_name，改封面后必须就地打补丁，
+      // 否则返回列表还是旧图（与截图页的处理一致）。
+      patchVideo(videoKey(video), updated)
+    },
+    [patchVideo, video]
+  )
 
   const handleCapture = useCallback(async () => {
     const player = playerRef.current
@@ -200,6 +214,7 @@ export default function PlayerPage({ video, onClose }) {
     if (wasPlaying) player.pause()
     try {
       await createVideoScreenshot(video.id, { second, locationId: video.location_id })
+      setPreviewToken((value) => value + 1)
       showToast(zh('截图已生成', 'Screenshot created'))
     } catch (error) {
       showToast(getErrorMessage(error))
@@ -601,6 +616,22 @@ export default function PlayerPage({ video, onClose }) {
             ) : null}
           </section>
         ) : null}
+
+        {/* 视频预览图：播放中按下相机按钮保存的截图。视频模块可以在这里直接
+            设为封面（改的是列表缩略图用的那张），与 PC 的截图弹窗一致。 */}
+        <section className="mt-3 border-b border-[#e6e8ec] bg-white">
+          <div className="flex items-center gap-2 border-b border-[#f1f2f5] px-3.5 py-2.5">
+            <b className="text-[12.5px] text-zinc-700">{zh('视频预览图', 'Preview images')}</b>
+          </div>
+          <div className="px-3.5 py-3">
+            <VideoPreviewGrid
+              videos={[video]}
+              allowSetCover
+              refreshToken={previewToken}
+              onCoverChanged={handleCoverChanged}
+            />
+          </div>
+        </section>
 
         <p className="px-3.5 py-4 text-[11px] leading-relaxed text-zinc-400">
           {zh(
