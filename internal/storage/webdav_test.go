@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -173,6 +174,50 @@ func TestWebDAVOpenRangeHonoursOffsets(t *testing.T) {
 	}
 	if reader.RangeStart() != 10 || reader.RangeEnd() != 19 {
 		t.Fatalf("reported range = %d-%d, want 10-19", reader.RangeStart(), reader.RangeEnd())
+	}
+	if reader.TotalSize() != int64(len(payload)) {
+		t.Fatalf("total size = %d, want %d", reader.TotalSize(), len(payload))
+	}
+}
+
+// TestWebDAVOpenRangeFollowsRedirect 复刻移动云 EOS 这类网盘的行为：媒体 GET 会
+// 302 到对象存储上的临时签名地址（另一个域名）。播放与切片要跟着跳转把字节读回来，
+// 而不是把 302 当成失败。
+func TestWebDAVOpenRangeFollowsRedirect(t *testing.T) {
+	payload := videoPayload()
+
+	objectMux := http.NewServeMux()
+	objectMux.HandleFunc("/objects/movie.mp4", func(w http.ResponseWriter, r *http.Request) {
+		// 对象存储总是给出长度，播放据此计算总时长。
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		_, _ = w.Write(payload)
+	})
+	objectServer := httptest.NewServer(objectMux)
+	t.Cleanup(objectServer.Close)
+
+	davMux := http.NewServeMux()
+	davMux.Handle("/dav/", basicAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "unexpected method", http.StatusMethodNotAllowed)
+			return
+		}
+		http.Redirect(w, r, objectServer.URL+"/objects/movie.mp4?X-Amz-Signature=test", http.StatusFound)
+	})))
+	server := httptest.NewServer(davMux)
+	t.Cleanup(server.Close)
+
+	backend := newTestWebDAVBackend(t, server)
+	reader, err := backend.OpenRange(context.Background(), "movie.mp4", 0, -1)
+	if err != nil {
+		t.Fatalf("open range: %v", err)
+	}
+	defer reader.Close()
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read range: %v", err)
+	}
+	if string(body) != string(payload) {
+		t.Fatalf("redirected body = %d bytes, want %d", len(body), len(payload))
 	}
 	if reader.TotalSize() != int64(len(payload)) {
 		t.Fatalf("total size = %d, want %d", reader.TotalSize(), len(payload))

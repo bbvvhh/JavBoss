@@ -16,6 +16,13 @@ func RegisterRoutes(router gin.IRoutes) {
 
 	router.GET("/config", getConfig)
 	router.PATCH("/config", updateConfig)
+	// data 目录的备份与恢复。GET/PUT/POST/DELETE 都返回同一份备份模块状态。
+	router.GET("/backup", getBackup)
+	router.PUT("/backup/settings", updateBackupSettings)
+	router.POST("/backup/run", runBackup)
+	router.POST("/backup/restore", restoreBackup)
+	router.POST("/backup/acknowledge", acknowledgeBackupRestore)
+	router.DELETE("/backup/files/:name", deleteBackupFile)
 	router.GET("/tools", getTools)
 	router.POST("/tools/ffmpeg/download", downloadFFmpeg)
 	router.GET("/videos", listVideos)

@@ -29,6 +29,7 @@ export default defineConfig({
       '/jav': backendProxy(),
       '/config': backendProxy(),
       '/tools': backendProxy(),
+      '/backup': backendProxy(),
     },
   },
 })

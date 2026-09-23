@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -44,28 +43,26 @@ func NewWebDAV(conn Connection, remoteRoot string) (*WebDAV, error) {
 	if err != nil {
 		return nil, err
 	}
-	transport := &http.Transport{
-		Proxy: util.DetectProxyFunc(),
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          16,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   15 * time.Second,
-		ExpectContinueTimeout: 5 * time.Second,
-		ResponseHeaderTimeout: 60 * time.Second,
+	// 解析器与代理都交给 util：Termux/极简容器里的系统 DNS 配置可能只有一个失效的
+	// loopback 解析器，兜底解析器能救回来。播放同样需要它——少数网盘（如移动云 EOS）
+	// 的 GET 会 302 到对象存储域名，跟随跳转请求解析的是另一个域名。
+	client := util.NewHTTPClientWithTransport(0, func(transport *http.Transport) {
+		transport.ForceAttemptHTTP2 = true
+		transport.MaxIdleConns = 16
+		transport.IdleConnTimeout = 90 * time.Second
+		transport.TLSHandshakeTimeout = 15 * time.Second
+		transport.ExpectContinueTimeout = 5 * time.Second
+		transport.ResponseHeaderTimeout = 60 * time.Second
 		// Ranges and transcoding rely on byte-exact transfers.
-		DisableCompression: true,
-	}
+		transport.DisableCompression = true
+	})
 	return &WebDAV{
 		conn: conn,
 		root: NormalizeRemotePath(remoteRoot),
 		base: base,
 		// No client timeout: media reads are long-lived. PROPFIND applies its own
 		// context deadline instead.
-		client: &http.Client{Transport: transport},
+		client: client,
 	}, nil
 }
 

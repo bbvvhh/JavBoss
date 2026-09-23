@@ -6,6 +6,7 @@ import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined'
 
 import ExtensionTokenSettings from '@/components/ExtensionTokenSettings'
 import DirectoryManager from '@/components/DirectoryManager'
+import BackupSettingsPanel from '@/components/BackupSettingsPanel'
 import AppModal from '@/components/AppModal'
 import PlayerSettingsModal from '@/components/PlayerSettingsModal'
 import SubtitleSettingsPanel from '@/components/SubtitleSettingsPanel'
@@ -55,6 +56,14 @@ const SETTINGS_SECTIONS = [
     id: 'subtitles',
     title: { zh: '字幕', en: 'Subtitles' },
     summary: { zh: '在线字幕接口与一键下载', en: 'Subtitle API and batch download' },
+  },
+  {
+    id: 'backup',
+    title: { zh: '备份与恢复', en: 'Backup & Restore' },
+    summary: {
+      zh: '备份 data 目录并按需恢复',
+      en: 'Back up the data folder and restore it',
+    },
   },
   {
     id: 'security',
@@ -1568,6 +1577,12 @@ export default function GlobalSettingsModal({
           {currentSection === 'tools' && renderToolsPanel()}
           {currentSection === 'player' && renderPlayerPanel()}
           {currentSection === 'subtitles' && <SubtitleSettingsPanel onToast={onToast} />}
+          {currentSection === 'backup' && (
+            <BackupSettingsPanel
+              onToast={onToast}
+              directoryPickerEnabled={directoryPickerEnabled}
+            />
+          )}
           {currentSection === 'directories' && renderDirectoriesPanel()}
           {currentSection === 'security' && (
             <div className="space-y-6">

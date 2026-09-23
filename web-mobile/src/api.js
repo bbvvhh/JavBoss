@@ -520,6 +520,66 @@ export async function downloadFFmpeg() {
   return requestJSON('POST', `/tools/ffmpeg/download`)
 }
 
+/* ---------------- 备份与恢复（只写 JavBoss 自己的 data/ 与备份保存目录） ----------------
+ *
+ * 备份 = 把服务端 data 目录打成加密 zip，落到「备份保存路径」；恢复 = 解压到暂存目录，
+ * 重启后由程序落地。所有写接口都返回同一份 overview。
+ * 已核实 internal/server/backup_api.go 与 internal/backup：打包对象是 dataDir，
+ * 恢复只覆盖 data 目录内容、只删除备份保存路径里的备份文件，
+ * 绝不删除任何媒体目录里的视频文件。
+ */
+
+export async function getBackupOverview() {
+  return requestJSON('GET', `/backup`, { cache: 'no-store' })
+}
+
+/**
+ * 字段都可选：`backup_path` 为空表示不改；`password` 传空串表示不改密码。
+ *
+ * `connectionId` 正数表示备份写到该 WebDAV 连接的远程目录，0 表示本机目录；
+ * 必须和 `backupPath` 一起下发，否则从远程切回本地时后端会把本机路径当成远程路径。
+ */
+export async function updateBackupSettings({
+  backupPath,
+  connectionId,
+  password,
+  clearPassword = false,
+} = {}) {
+  const body = { clear_password: Boolean(clearPassword) }
+  if (backupPath !== undefined) body.backup_path = backupPath
+  if (connectionId !== undefined) {
+    const id = Number(connectionId)
+    body.connection_id = Number.isFinite(id) && id > 0 ? id : 0
+  }
+  // 空字符串按后端约定 = 不修改，所以这里只在真有新密码时才带上。
+  if (password) body.password = password
+  return requestJSON('PUT', `/backup/settings`, { body })
+}
+
+/** 立即备份；`password` 留空则用设置里保存的压缩密码。 */
+export async function runBackup(password = '') {
+  const body = {}
+  if (password) body.password = password
+  return requestJSON('POST', `/backup/run`, { body })
+}
+
+/** 暂存一份恢复（重启 JavBoss 后才生效）；`password` 留空则用设置里保存的密码。 */
+export async function restoreBackup(name, password = '') {
+  const body = { name }
+  if (password) body.password = password
+  return requestJSON('POST', `/backup/restore`, { body })
+}
+
+/** 清除「上次恢复」结果提示。 */
+export async function acknowledgeBackupRestore() {
+  return requestJSON('POST', `/backup/acknowledge`, { body: {} })
+}
+
+/** 删除备份保存路径里的某个备份文件（不动 data 目录，也不动任何视频文件）。 */
+export async function deleteBackupFile(name) {
+  return requestJSON('DELETE', `/backup/files/${encodeURIComponent(name)}`)
+}
+
 /* ---------------- 目录管理 ---------------- */
 
 export async function fetchDirectories() {

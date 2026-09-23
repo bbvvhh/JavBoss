@@ -33,6 +33,7 @@ const SETTINGS_PAGES = {
   'settings:global': lazy(() => import('@/components/settings/GlobalSettingsPage')),
   'settings:storage': lazy(() => import('@/components/settings/StorageConnectionPage')),
   'settings:tokens': lazy(() => import('@/components/settings/ExtensionTokenPage')),
+  'settings:backup': lazy(() => import('@/components/settings/BackupPage')),
   'settings:tools': lazy(() => import('@/components/settings/ToolsPage')),
   'settings:account': lazy(() => import('@/components/settings/AccountPage')),
   'settings:about': lazy(() => import('@/components/settings/AboutPage')),

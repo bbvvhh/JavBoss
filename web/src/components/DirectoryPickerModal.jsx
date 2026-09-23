@@ -14,13 +14,15 @@ import { getErrorMessage } from '@/utils/errors'
 import { zh } from '@/utils/i18n'
 
 // Mount when opening; onSelect returns an absolute path understood by the server.
-// With `storageConnectionId` the picker browses a read-only WebDAV source instead,
-// where paths are remote paths that must be used verbatim.
+// With `storageConnectionId` the picker browses a WebDAV source instead, where
+// paths are remote paths that must be used verbatim. `remoteHint` overrides the
+// generic "read-only source" note for callers whose target is writable.
 export default function DirectoryPickerModal({
   initialPath = '',
   onSelect,
   onClose,
   storageConnectionId = null,
+  remoteHint = '',
 }) {
   const useHostPaths = useStore((state) => hostPathsEnabled(state.config))
   const titleId = useId()
@@ -130,10 +132,11 @@ export default function DirectoryPickerModal({
           </h2>
           {browsingRemote && (
             <p className="mt-1 text-xs text-gray-500">
-              {zh(
-                '远程目录为只读来源，路径直接取自 WebDAV 服务器。',
-                'Remote folders are read-only and paths come straight from the WebDAV server.'
-              )}
+              {remoteHint ||
+                zh(
+                  '远程目录为只读来源，路径直接取自 WebDAV 服务器。',
+                  'Remote folders are read-only and paths come straight from the WebDAV server.'
+                )}
             </p>
           )}
         </div>

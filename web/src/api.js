@@ -1560,3 +1560,57 @@ export async function deleteExtensionToken(id) {
   const res = await apiFetch(`/auth/extension-tokens/${id}`, { method: 'DELETE' })
   if (!res.ok) throw await apiError(res)
 }
+
+/* ---------------- data 目录备份/恢复 ---------------- */
+
+export async function fetchBackupOverview() {
+  const res = await apiFetch('/backup', { cache: 'no-store' })
+  if (!res.ok) throw await apiError(res)
+  return parseJSONResponse(res)
+}
+
+export async function updateBackupSettings(payload) {
+  const res = await apiFetch('/backup/settings', {
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify(payload || {}),
+  })
+  if (!res.ok) throw await apiError(res)
+  return parseJSONResponse(res)
+}
+
+export async function runBackup(password = '') {
+  const res = await apiFetch('/backup/run', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify(password ? { password } : {}),
+  })
+  if (!res.ok) throw await apiError(res)
+  return parseJSONResponse(res)
+}
+
+export async function restoreBackup(name, password = '') {
+  const res = await apiFetch('/backup/restore', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify(password ? { name, password } : { name }),
+  })
+  if (!res.ok) throw await apiError(res)
+  return parseJSONResponse(res)
+}
+
+export async function acknowledgeBackupRestore() {
+  const res = await apiFetch('/backup/acknowledge', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({}),
+  })
+  if (!res.ok) throw await apiError(res)
+  return parseJSONResponse(res)
+}
+
+export async function deleteBackupFile(name) {
+  const res = await apiFetch(`/backup/files/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  if (!res.ok) throw await apiError(res)
+  return parseJSONResponse(res)
+}

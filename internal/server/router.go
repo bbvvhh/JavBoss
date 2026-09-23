@@ -297,6 +297,7 @@ func acceptsHTML(c *gin.Context) bool {
 func isAPIPath(path string) bool {
 	for _, prefix := range []string{
 		"/auth",
+		"/backup",
 		"/config",
 		"/directories",
 		"/downloader",

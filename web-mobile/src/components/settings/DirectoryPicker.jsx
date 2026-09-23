@@ -22,6 +22,7 @@ export default function DirectoryPicker({
   onSelect,
   onClose,
   extraAction = null,
+  remoteHint = '',
 }) {
   const [path, setPath] = useState('')
   const [showHidden, setShowHidden] = useState(false)
@@ -179,7 +180,8 @@ export default function DirectoryPicker({
       >
         <p className="flex-1 self-center text-[11px] leading-snug text-zinc-400">
           {remote
-            ? zh(
+            ? remoteHint ||
+              zh(
                 '远程来源是只读的，JavBoss 只会扫描和播放。',
                 'Remote sources are read-only; JavBoss only scans and plays.'
               )

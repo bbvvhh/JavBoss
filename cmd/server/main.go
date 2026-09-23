@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"javboss/internal/backup"
 	"javboss/internal/cache"
 	clientpkg "javboss/internal/client"
 	"javboss/internal/common"
@@ -121,6 +122,16 @@ func main() {
 		}
 		if legacyLock != nil {
 			defer releaseFileLock(legacyLock, legacyLockPath, true, logger)
+		}
+	}
+
+	// 恢复的收尾必须在打开数据库之前：被覆盖的库可能来自旧版本（随后由迁移升级），
+	// 而且旧库的 WAL 会让覆盖结果不一致。
+	if result := backup.ApplyPending(filepath.Dir(cfg.DatabasePath), filepath.Base(cfg.DatabasePath)); result.FileName != "" {
+		if result.Error != "" {
+			logger.Printf("apply pending restore from %s failed: %s", result.FileName, result.Error)
+		} else {
+			logger.Printf("applied pending restore from %s (%d files)", result.FileName, result.FileCount)
 		}
 	}
 
