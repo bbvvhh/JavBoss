@@ -1,7 +1,6 @@
 import { useMemo } from 'react'
 
 import Icon from '@/components/Icons'
-import { findJavSortOption, javSortLabel, JAV_DENSITY_LABELS } from '@/constants/jav'
 import { useStore } from '@/store'
 import { zh } from '@/utils/i18n'
 
@@ -30,25 +29,25 @@ function Count({ value }) {
 }
 
 /**
- * JAV 模式的功能栏，与视频模式的 QuickChips 同位置、同行为：吸顶常显。
- * 排序 / 随机 / 密度 / 标签 / 收藏夹 / 筛选 —— 标签与收藏夹都做成了独立入口，
- * 不用再钻进筛选抽屉里找。
+ * JAV 作品页的功能栏，与视频模式的 QuickChips 同位置、同行为：吸顶常显。
+ * 筛选排序 / 随机 / 标签 / 收藏夹 —— 标签与收藏夹都做成了独立入口，
+ * 不用再钻进筛选抽屉里找。女优页用 JavIdolQuickChips，片商 / 系列页没有功能栏。
+ *
+ * 「筛选排序」是**一个**入口：排序与筛选本来就收在同一个抽屉（JavFilterSheet）里，
+ * 拆成两个 chip 只是同一个按钮换个文案，所以合并成一个。
  */
 export default function JavQuickChips({ onOpenFilter, onOpenTags, onOpenFavorites }) {
-  const javSort = useStore((state) => state.javSort)
-  const javDensity = useStore((state) => state.javDensity)
   const javRandomSeed = useStore((state) => state.javRandomSeed)
   const filters = useStore((state) => state.javFilters)
   const rollJavRandom = useStore((state) => state.rollJavRandom)
   const clearJavRandom = useStore((state) => state.clearJavRandom)
-  const openJavDensitySheet = useStore((state) => state.openJavDensitySheet)
   const clearJavFilters = useStore((state) => state.clearJavFilters)
   const setJavSort = useStore((state) => state.setJavSort)
 
   const tagCount = filters.tagIds.length
   const hasFavorite = Boolean(filters.favoriteGroupId)
 
-  // 「筛选」chip 只反映抽屉里的条件，标签与收藏夹各自计数，避免数字对不上。
+  // 角标只数抽屉里的条件，标签与收藏夹各自计数，避免数字对不上。
   const drawerCount = useMemo(
     () =>
       (filters.prefix ? 1 : 0) +
@@ -62,15 +61,12 @@ export default function JavQuickChips({ onOpenFilter, onOpenTags, onOpenFavorite
 
   const hasAny = drawerCount > 0 || tagCount > 0 || hasFavorite || Boolean(javRandomSeed)
 
-  const sortOption = findJavSortOption(javSort)
-  const sortLabel = zh(...javSortLabel(sortOption))
-  const densityLabel = zh(...JAV_DENSITY_LABELS[javDensity])
-
   return (
     <div className="no-scrollbar sticky top-[50px] z-10 flex flex-none gap-[7px] overflow-x-auto border-b border-[#e6e8ec] bg-white/95 px-3 py-2 backdrop-blur-md">
       <Chip tone={drawerCount > 0 ? 'active' : 'default'} onClick={onOpenFilter}>
         <Icon name="sort" size={14} />
-        {sortLabel}
+        {zh('筛选排序', 'Filter & sort')}
+        <Count value={drawerCount} />
       </Chip>
 
       <Chip
@@ -79,11 +75,6 @@ export default function JavQuickChips({ onOpenFilter, onOpenTags, onOpenFavorite
       >
         <Icon name="shuffle" size={14} />
         {zh('随机', 'Random')}
-      </Chip>
-
-      <Chip tone="active" onClick={openJavDensitySheet}>
-        <Icon name="layers" size={14} />
-        {densityLabel}
       </Chip>
 
       <Chip tone={tagCount ? 'active' : 'default'} onClick={onOpenTags}>
@@ -99,12 +90,6 @@ export default function JavQuickChips({ onOpenFilter, onOpenTags, onOpenFavorite
             ? filters.favoriteGroupName || zh('收藏夹', 'Favorites')
             : zh('收藏夹', 'Favorites')}
         </span>
-      </Chip>
-
-      <Chip tone={drawerCount > 0 ? 'active' : 'default'} onClick={onOpenFilter}>
-        <Icon name="filter" size={14} />
-        {zh('筛选', 'Filter')}
-        <Count value={drawerCount} />
       </Chip>
 
       {hasAny ? (

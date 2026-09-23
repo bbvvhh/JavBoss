@@ -1,5 +1,7 @@
 import Icon from '@/components/Icons'
+import { JAV_DENSITY_LABELS } from '@/constants/jav'
 import { useStore } from '@/store'
+import { DENSITY_LABELS } from '@/utils/density'
 import { zh } from '@/utils/i18n'
 
 export default function TopBar({ onOpenSearch, onOpenSettings }) {
@@ -7,6 +9,19 @@ export default function TopBar({ onOpenSearch, onOpenSettings }) {
   const setView = useStore((state) => state.setView)
   const total = useStore((state) => state.total)
   const loading = useStore((state) => state.loading)
+  const density = useStore((state) => state.density)
+  const javDensity = useStore((state) => state.javDensity)
+  const openDensitySheet = useStore((state) => state.openDensitySheet)
+  const openJavDensitySheet = useStore((state) => state.openJavDensitySheet)
+
+  // 布局（密度）控制按钮放在第一行：第二行在女优 / 片商 / 系列 tab 上不渲染，
+  // 留在那里会让这几个页面彻底改不了列数。
+  const isJav = view === 'jav'
+  const densityLabel = zh(...(isJav ? JAV_DENSITY_LABELS[javDensity] : DENSITY_LABELS[density]))
+  const layoutLabel = zh(
+    `切换列表布局，当前：${densityLabel}`,
+    `Change layout, current: ${densityLabel}`
+  )
 
   return (
     <header className="sticky top-0 z-20 flex h-[50px] flex-none items-center gap-2 border-b border-[#e6e8ec] bg-white/95 px-2.5 backdrop-blur-md">
@@ -45,6 +60,15 @@ export default function TopBar({ onOpenSearch, onOpenSettings }) {
         <span className="text-[11px] tabular-nums text-zinc-400">{total}</span>
       ) : null}
 
+      <button
+        type="button"
+        onClick={isJav ? openJavDensitySheet : openDensitySheet}
+        aria-label={layoutLabel}
+        title={layoutLabel}
+        className="grid h-[34px] w-[34px] place-items-center rounded-[10px] text-zinc-700 active:bg-zinc-100"
+      >
+        <Icon name="layers" />
+      </button>
       <button
         type="button"
         onClick={onOpenSearch}

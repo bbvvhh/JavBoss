@@ -1,7 +1,6 @@
 import Icon from '@/components/Icons'
 import { findVideoSortOption } from '@/constants/video'
 import { useStore } from '@/store'
-import { DENSITY_LABELS } from '@/utils/density'
 import { zh } from '@/utils/i18n'
 
 function Chip({ tone = 'default', onClick, children }) {
@@ -22,11 +21,9 @@ function Chip({ tone = 'default', onClick, children }) {
 
 export default function QuickChips({ onOpenFilter }) {
   const sort = useStore((state) => state.sort)
-  const density = useStore((state) => state.density)
   const selectedTags = useStore((state) => state.selectedTags)
   const hideJav = useStore((state) => state.hideJav)
   const randomSeed = useStore((state) => state.randomSeed)
-  const openDensitySheet = useStore((state) => state.openDensitySheet)
   const clearFilters = useStore((state) => state.clearFilters)
   const rollRandom = useStore((state) => state.rollRandom)
   const clearRandom = useStore((state) => state.clearRandom)
@@ -34,7 +31,6 @@ export default function QuickChips({ onOpenFilter }) {
   const hasFilters = selectedTags.length > 0 || hideJav || sort !== 'recent' || Boolean(randomSeed)
   const sortOption = findVideoSortOption(sort)
   const sortLabel = sortOption ? zh(sortOption.label[0], sortOption.label[1]) : zh('排序', 'Sort')
-  const densityLabel = zh(...DENSITY_LABELS[density])
 
   return (
     <div className="no-scrollbar sticky top-[50px] z-10 flex flex-none gap-[7px] overflow-x-auto border-b border-[#e6e8ec] bg-white/95 px-3 py-2 backdrop-blur-md">
@@ -49,11 +45,6 @@ export default function QuickChips({ onOpenFilter }) {
       >
         <Icon name="shuffle" size={14} />
         {zh('随机', 'Random')}
-      </Chip>
-
-      <Chip tone="active" onClick={openDensitySheet}>
-        <Icon name="layers" size={14} />
-        {densityLabel}
       </Chip>
 
       <Chip tone={selectedTags.length > 0 ? 'active' : 'default'} onClick={onOpenFilter}>

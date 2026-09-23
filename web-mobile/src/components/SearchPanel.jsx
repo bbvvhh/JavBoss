@@ -6,6 +6,19 @@ import { zh } from '@/utils/i18n'
 
 const DEBOUNCE_MS = 300
 
+/** 搜索提示文案与 PC 端顶栏保持一致，随模式与 JAV 子分类切换。 */
+const SEARCH_PLACEHOLDERS = {
+  works: ['搜索番号或标题', 'Search code or title'],
+  idols: ['搜索女优名称', 'Search idol name'],
+  studios: ['搜索片商名称', 'Search studio name'],
+  series: ['搜索系列名称', 'Search series name'],
+}
+
+export function searchPlaceholder(view, javTab) {
+  const parts = view === 'jav' ? SEARCH_PLACEHOLDERS[javTab] : null
+  return parts ? zh(parts[0], parts[1]) : zh('搜索文件名', 'Search filename')
+}
+
 /**
  * 搜索栏：点放大镜后「顶栏原地变形」成输入框，下面的列表保持可见。
  * 输入 300ms 后自动生效（searchInput → searchTerm），不需要回车。
@@ -16,6 +29,9 @@ export function SearchBar({ onClose }) {
   const setSearchInput = useStore((state) => state.setSearchInput)
   const applySearch = useStore((state) => state.applySearch)
   const rememberSearch = useStore((state) => state.rememberSearch)
+  const view = useStore((state) => state.view)
+  const javTab = useStore((state) => state.javTab)
+  const placeholder = searchPlaceholder(view, javTab)
 
   useEffect(() => {
     const timer = window.setTimeout(() => inputRef.current?.focus(), 60)
@@ -44,8 +60,8 @@ export function SearchBar({ onClose }) {
           onKeyDown={(event) => {
             if (event.key === 'Enter') finish(searchInput)
           }}
-          placeholder={zh('搜索文件名', 'Search filename')}
-          aria-label={zh('搜索文件名', 'Search filename')}
+          placeholder={placeholder}
+          aria-label={placeholder}
           className="w-full bg-transparent text-[13.5px] outline-none placeholder:text-zinc-400"
         />
         {searchInput ? (

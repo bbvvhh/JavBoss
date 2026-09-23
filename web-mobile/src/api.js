@@ -358,12 +358,29 @@ export async function fetchJavTags() {
   return requestJSON('GET', `/jav/tags`)
 }
 
-export async function fetchJavIdols({ limit = 24, offset = 0, search = '', sort = '' } = {}) {
+/**
+ * 女优列表。
+ *
+ * `profileRanges` 是「资料范围筛选」，键名就是后端 parseJavIdolIntRange 认的
+ * `idol_<key>_min` / `idol_<key>_max`（如 `idol_height_min`）。**两端必须成对
+ * 出现**，只给一边后端直接 400，所以由调用方只传已启用、且 min ≤ max 的项。
+ */
+export async function fetchJavIdols({
+  limit = 24,
+  offset = 0,
+  search = '',
+  sort = '',
+  profileRanges = [],
+} = {}) {
   const params = new URLSearchParams()
   params.set('limit', String(limit))
   params.set('offset', String(offset))
   if (search) params.set('search', search)
   if (sort) params.set('sort', sort)
+  for (const range of profileRanges) {
+    params.set(`idol_${range.key}_min`, String(range.min))
+    params.set(`idol_${range.key}_max`, String(range.max))
+  }
   return requestJSON('GET', `/jav/idols?${params.toString()}`)
 }
 

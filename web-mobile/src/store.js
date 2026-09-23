@@ -11,7 +11,13 @@ import {
   updateConfig,
 } from '@/api'
 import { normalizeVideoSort } from '@/constants/video'
-import { normalizeJavSort, normalizeJavDensity } from '@/constants/jav'
+import {
+  createDefaultIdolProfileFilters,
+  normalizeIdolProfileFilters,
+  normalizeIdolSort,
+  normalizeJavDensity,
+  normalizeJavSort,
+} from '@/constants/jav'
 import { initialViewMode } from '@/utils/javDisplay'
 import {
   DEFAULT_DENSITY,
@@ -293,6 +299,21 @@ export const useStore = create((set, get) => ({
 
   javFilters: { ...EMPTY_JAV_FILTERS },
   setJavFilters: (patch) => set({ javFilters: { ...get().javFilters, ...(patch || {}) } }),
+
+  /**
+   * 女优页的排序与资料筛选。
+   *
+   * `idolSort` 是**临时排序**：空字符串表示沿用全局设置里的 `idol_sort`（与 PC 端
+   * 的 idolTempSort 同义），所以这里不能用 normalizeIdolSort 的 'work' 兜底。
+   * 作品页那一整套排序 / 筛选（javSort、javFilters）只对作品生效，两者互不干扰。
+   */
+  idolSort: '',
+  setIdolSort: (value) => set({ idolSort: normalizeIdolSort(value, '') }),
+  idolProfileFilters: createDefaultIdolProfileFilters(),
+  setIdolProfileFilters: (filters) =>
+    set({ idolProfileFilters: normalizeIdolProfileFilters(filters) }),
+  resetIdolControls: () =>
+    set({ idolSort: '', idolProfileFilters: createDefaultIdolProfileFilters() }),
 
   /**
    * 作品 / 女优列表的「就地补丁」。

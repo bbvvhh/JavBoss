@@ -121,8 +121,8 @@ src/
 ├── App.jsx               # 页面编排（顶栏 / 搜索 / 抽屉 / 播放器 / 页面栈）
 ├── auth.jsx              # cookie 认证 Provider
 ├── components/
-│   ├── TopBar.jsx        # logo + 视频/JAV 分段 + 搜索 + 设置
-│   ├── QuickChips.jsx    # 排序 / 随机 / 密度 / 标签 / 筛选
+│   ├── TopBar.jsx        # logo + 视频/JAV 分段 + 布局（密度）+ 搜索 + 设置
+│   ├── QuickChips.jsx    # 视频功能栏：排序 / 随机 / 标签 / 筛选
 │   ├── VideoCard.jsx     # 三种密度排版（大图 / 标准 / 紧凑）
 │   ├── VideoGrid.jsx     # 骨架屏 + 无限滚动哨兵
 │   ├── SearchPanel.jsx   # SearchBar（顶栏变形）+ SearchHints
@@ -333,17 +333,20 @@ POST /videos/locations/hide
 
 | 位置 | 视频模式 | JAV 模式 |
 | --- | --- | --- |
-| 第 1 行 · 常显 | `JB` + `视频\|JAV` 分段 + 🔍 搜索 + ⚙️ 设置 | 同左 |
-| 第 2 行 · 常显吸顶 | `QuickChips`：排序 / 随机 / 密度 / 标签 / 筛选 | `JavQuickChips`：排序 / 随机 / 密度 / **标签** / **收藏夹** / 筛选 |
+| 第 1 行 · 常显 | `JB` + `视频\|JAV` 分段 + 🧅 布局（密度）+ 🔍 搜索 + ⚙️ 设置 | 同左 |
+| 第 2 行 · 常显吸顶 | `QuickChips`：排序 / 随机 / 标签 / 筛选 | **作品页** `JavQuickChips`：**筛选排序** / 随机 / **标签** / **收藏夹**<br>**女优页** `JavIdolQuickChips`：排序 / 资料筛选<br>**片商 / 系列页**：不渲染 |
 | 第 3 行 · 吸顶但**下滑隐藏** | — | `JavTabs`：作品 / 女优 / 片商 / 系列 + 数量 |
 | 内容 | `VideoGrid`（大图 1 列 / 标准 2 列 / 紧凑 3 列） | 作品 1·2·3 列、女优 2·3·4 列、片商·系列列表 |
-| 搜索 | 共用顶栏放大镜 → `SearchBar` | 同左（搜索词走同一个 `store.searchTerm`） |
+| 搜索 | 共用顶栏放大镜 → `SearchBar` | 同左（搜索词走同一个 `store.searchTerm`，提示文案随子分类变化） |
 
-- **两个模式的功能栏都是 6 个左右的独立入口**，标签与收藏夹各自有 chip 和抽屉，不用钻进「筛选」里找。
+- **布局（密度）按钮在第 1 行**：第 2 行在女优 / 片商 / 系列页不渲染，留在那里会让这几个页面彻底改不了列数。
+- **JAV 第 2 行按子分类分流**：作品页的排序 / 随机 / 标签 / 收藏夹 / 筛选只作用于作品（后端 `/jav/idols` 不认这些参数）；女优页改用对齐 PC 端的排序 + 资料范围筛选；片商 / 系列页没有可筛的维度，整行不渲染。
+- **两个模式的功能栏都是 5 个左右的独立入口**，标签与收藏夹各自有 chip 和抽屉，不用钻进「筛选」里找。
 - **JAV 支持大图模式**：作品单列、标题完整显示、带演员行与标签行，与视频端的大图一致。
 - **第 2 行功能栏永远可见**，滚到哪都贴着顶栏。
 - **第 3 行 JAV 分类行**用 `useHideOnScroll` 做方向检测：下滑收起、上滑恢复；接近顶部（<48px）永远显示，避免刚进页面就藏起来。
-- 滚动的吸顶层级：顶栏 `z-20 / top-0`，功能栏 `z-10 / top-[50px]`，分类行 `z-[9] / top-[96px]`。
+- 滚动的吸顶层级：顶栏 `z-20 / top-0`，功能栏 `z-10 / top-[50px]`，分类行 `z-[9]`。
+- **分类行的吸顶偏移跟着第 2 行走**：作品 / 女优页 `top-[96px]`（50 + 46px），片商 / 系列页 `top-[50px]` —— 后者没有第 2 行，仍按 96px 吸顶会在顶上留出一条空档。
 - 多选态与搜索态会临时替换第 1 行，退出后恢复。
 
 实测（390×844）：
@@ -368,7 +371,8 @@ POST /videos/locations/hide
 | `ScreenshotsPage.jsx` | 截图查看 / 生成 / 设为封面 / 删除截图 | 只动 `data/` 下的截图 |
 | `ScrapeSettingsPage.jsx` | 单视频：自动 / 手动 / 不刮削 + 番号提取测试 + 关联已有 | 只写数据库 |
 | `RenamePage.jsx` | **唯一会写媒体目录的界面** | diff 预览 + 扩展名锁定 + 二次确认 + 本地重名预检 |
-| `JavQuickChips.jsx` / `JavFilterSheet.jsx` / `JavDensitySheet.jsx` | JAV 功能栏：排序 / 随机 / 密度（大图·标准·紧凑）/ 筛选 | 只读 |
+| `JavQuickChips.jsx` / `JavFilterSheet.jsx` / `JavDensitySheet.jsx` | JAV **作品页**功能栏：**筛选排序** / 随机 / 标签 / 收藏夹（密度在顶栏第 1 行，抽屉是 `JavDensitySheet`） | 只读 |
+| `JavIdolQuickChips.jsx` / `JavIdolFilterSheet.jsx` | JAV **女优页**功能栏：排序（作品数量 / 加入时间 / 年龄 / 身高 / 胸围 / 臀围 / 腰围 / 罩杯，可切方向）+ 资料范围筛选（对齐 PC 端女优页） | 只读 |
 | `JavTagSheet.jsx` / `JavFavoriteSheet.jsx` | JAV 标签多选、作品收藏夹单选（功能栏独立入口） | 只读 |
 | `IdolCover.jsx` | 女优封面：只显示源图**最右侧 47%**（列表与详情共用） | 改 `maxWidth` 前先读文件里的注释 |
 | `JavWorkCard.jsx` | JAV 作品卡（大图 / 标准 / 紧凑），列表与女优详情共用 | 只读；显示哪些行由全局设置决定 |

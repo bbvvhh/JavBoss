@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { fetchJavIdols, fetchJavSeries, fetchJavStudios, fetchJavs } from '@/api'
 import Icon from '@/components/Icons'
 import IdolCover from '@/components/IdolCover'
 import JavWorkCard from '@/components/JavWorkCard'
-import { JAV_DENSITY_COLUMNS, normalizeIdolSort } from '@/constants/jav'
+import { JAV_DENSITY_COLUMNS, idolProfileRangeParams, normalizeIdolSort } from '@/constants/jav'
 import useHideOnScroll from '@/hooks/useHideOnScroll'
 import { idolPatchKey, javPatchKey, useStore } from '@/store'
 import { configString } from '@/utils/config'
@@ -29,12 +29,18 @@ const FETCHERS = {
 
 /**
  * 次级导航：吸顶但不必常显 —— 下滑时收起，上滑时重新出现。
- * 主功能栏（排序 / 随机 / 密度 / 筛选）由 App 渲染，始终可见。
+ * 主功能栏由 App 按当前子分类渲染（作品 / 女优各一套），始终可见。
  */
 function JavTabs({ value, onChange, total, loading, hidden }) {
+  // 吸顶偏移必须跟着第二行功能栏走：作品 / 女优页有（50 + 46px），片商 / 系列页
+  // 没有（App 按 javTab 决定渲染哪一套 chip）。仍然按 96px 吸顶会在顶上留出
+  // 一条空档，看起来像第二行还在。
+  const hasChips = value === 'works' || value === 'idols'
   return (
     <div
-      className="sticky top-[96px] z-[9] flex-none overflow-hidden border-b border-[#e6e8ec] bg-white/95 backdrop-blur-md transition-transform duration-200 ease-out"
+      className={`${
+        hasChips ? 'top-[96px]' : 'top-[50px]'
+      } sticky z-[9] flex-none overflow-hidden border-b border-[#e6e8ec] bg-white/95 backdrop-blur-md transition-transform duration-200 ease-out`}
       style={{ transform: hidden ? 'translateY(-100%)' : 'translateY(0)' }}
       aria-hidden={hidden}
     >
@@ -73,6 +79,8 @@ export default function JavListPage() {
   const javDensity = useStore((state) => state.javDensity)
   const jumpToJavWorks = useStore((state) => state.jumpToJavWorks)
   const filters = useStore((state) => state.javFilters)
+  const idolTempSort = useStore((state) => state.idolSort)
+  const idolProfileFilters = useStore((state) => state.idolProfileFilters)
   const config = useStore((state) => state.config)
   // 详情页里改过喜爱度 / 收藏夹的条目：列表本身是无限滚动的本地状态，
   // 用 store 里的增量补丁合并回来，否则返回列表看不到刚改的值。
@@ -80,8 +88,14 @@ export default function JavListPage() {
 
   // 每页数量与女优默认排序都来自全局设置（缺省值与 PC 端一致）。
   const pageSize = javPageSize(config, tab)
-  const idolSort = normalizeIdolSort(configString(config, 'idol_sort', 'work'))
+  // 女优页的排序与资料筛选：临时排序优先，为空则用全局设置里的 idol_sort。
+  const idolSort = idolTempSort || normalizeIdolSort(configString(config, 'idol_sort', 'work'))
+  const idolRanges = useMemo(() => idolProfileRangeParams(idolProfileFilters), [idolProfileFilters])
   const prefs = javDisplayPrefs(config)
+
+  // 随机模式只属于作品页：后端 `/jav/idols` 不支持 seed，切到女优页后必须当它不存在，
+  // 否则无限滚动会被随机标记卡住（列表只剩第一页）。
+  const randomSeed = tab === 'works' ? javRandomSeed : null
 
   const decorate = (item, key) => {
     const patch = itemPatches[key(item?.id)]
@@ -131,11 +145,11 @@ export default function JavListPage() {
               favoriteRatingEnabled: parsed.favoriteRatingEnabled,
               favoriteRatingMin: parsed.favoriteRatingMin,
               favoriteRatingMax: parsed.favoriteRatingMax,
-              sort: javRandomSeed ? 'random' : javSort,
-              seed: javRandomSeed || null,
+              sort: randomSeed ? 'random' : javSort,
+              seed: randomSeed || null,
             }
           : tab === 'idols'
-            ? { ...common, sort: idolSort }
+            ? { ...common, sort: idolSort, profileRanges: idolRanges }
             : common
 
       try {
@@ -155,7 +169,7 @@ export default function JavListPage() {
         }
       }
     },
-    [tab, search, javSort, javRandomSeed, filtersKey, pageSize, idolSort]
+    [tab, search, javSort, randomSeed, filtersKey, pageSize, idolSort, idolRanges]
   )
 
   useEffect(() => {
@@ -166,7 +180,7 @@ export default function JavListPage() {
 
   useEffect(() => {
     const node = sentinelRef.current
-    if (!node || !hasNext || loading || loadingMore || javRandomSeed) return undefined
+    if (!node || !hasNext || loading || loadingMore || randomSeed) return undefined
     if (typeof IntersectionObserver !== 'function') return undefined
     const observer = new IntersectionObserver(
       (entries) => {
@@ -176,7 +190,7 @@ export default function JavListPage() {
     )
     observer.observe(node)
     return () => observer.disconnect()
-  }, [hasNext, loading, loadingMore, items.length, load, javRandomSeed])
+  }, [hasNext, loading, loadingMore, items.length, load, randomSeed])
 
   const columns = JAV_DENSITY_COLUMNS[javDensity] || JAV_DENSITY_COLUMNS.standard
   const compact = javDensity === 'compact'
@@ -192,7 +206,7 @@ export default function JavListPage() {
         </div>
       ) : null}
 
-      {javRandomSeed ? (
+      {randomSeed ? (
         <div className="flex items-center gap-2 border-b border-[#e6e8ec] bg-brand-soft px-3 py-2 text-[12px] text-brand-ink">
           <Icon name="shuffle" size={13} />
           <span>{zh('随机模式：不支持分页', 'Random mode: no pagination')}</span>
@@ -353,7 +367,7 @@ export default function JavListPage() {
                   <span className="spin h-3.5 w-3.5 rounded-full border-2 border-zinc-300 border-t-zinc-500" />
                   {zh('正在加载更多…', 'Loading more...')}
                 </>
-              ) : javRandomSeed ? (
+              ) : randomSeed ? (
                 zh('随机模式已加载 24 项', 'Random mode loaded 24 items')
               ) : hasNext ? (
                 zh('继续下滑加载更多', 'Scroll for more')

@@ -8,6 +8,8 @@ import { JavDetailPage, JavIdolPage } from '@/components/JavDetailPage'
 import JavDensitySheet from '@/components/JavDensitySheet'
 import JavFavoriteSheet from '@/components/JavFavoriteSheet'
 import JavFilterSheet from '@/components/JavFilterSheet'
+import JavIdolFilterSheet from '@/components/JavIdolFilterSheet'
+import JavIdolQuickChips from '@/components/JavIdolQuickChips'
 import JavListPage from '@/components/JavListPage'
 import JavQuickChips from '@/components/JavQuickChips'
 import JavTagSheet from '@/components/JavTagSheet'
@@ -34,12 +36,14 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
   const [javFilterOpen, setJavFilterOpen] = useState(false)
+  const [javIdolFilterOpen, setJavIdolFilterOpen] = useState(false)
   const [javTagOpen, setJavTagOpen] = useState(false)
   const [javFavoriteOpen, setJavFavoriteOpen] = useState(false)
   const [tagTargets, setTagTargets] = useState(null)
   const [ready, setReady] = useState(false)
 
   const view = useStore((state) => state.view)
+  const javTab = useStore((state) => state.javTab)
   const videos = useStore((state) => state.videos)
   const total = useStore((state) => state.total)
   const density = useStore((state) => state.density)
@@ -100,11 +104,16 @@ export default function App() {
 
       {!selectionMode && !searchOpen ? (
         view === 'jav' ? (
-          <JavQuickChips
-            onOpenFilter={() => setJavFilterOpen(true)}
-            onOpenTags={() => setJavTagOpen(true)}
-            onOpenFavorites={() => setJavFavoriteOpen(true)}
-          />
+          javTab === 'works' ? (
+            <JavQuickChips
+              onOpenFilter={() => setJavFilterOpen(true)}
+              onOpenTags={() => setJavTagOpen(true)}
+              onOpenFavorites={() => setJavFavoriteOpen(true)}
+            />
+          ) : javTab === 'idols' ? (
+            // 女优页的排序 / 资料筛选与作品页完全无关，走独立控件。
+            <JavIdolQuickChips onOpenIdolSheet={() => setJavIdolFilterOpen(true)} />
+          ) : null
         ) : (
           <QuickChips onOpenFilter={() => setFilterOpen(true)} />
         )
@@ -178,6 +187,7 @@ export default function App() {
       <FilterSheet open={filterOpen} onClose={() => setFilterOpen(false)} />
       <DensitySheet />
       <JavFilterSheet open={javFilterOpen} onClose={() => setJavFilterOpen(false)} />
+      <JavIdolFilterSheet open={javIdolFilterOpen} onClose={() => setJavIdolFilterOpen(false)} />
       <JavTagSheet open={javTagOpen} onClose={() => setJavTagOpen(false)} />
       <JavFavoriteSheet open={javFavoriteOpen} onClose={() => setJavFavoriteOpen(false)} />
       <JavDensitySheet />
@@ -197,6 +207,7 @@ export default function App() {
       <OverlayBack open={searchOpen} onClose={() => setSearchOpen(false)} />
       <OverlayBack open={filterOpen} onClose={() => setFilterOpen(false)} />
       <OverlayBack open={javFilterOpen} onClose={() => setJavFilterOpen(false)} />
+      <OverlayBack open={javIdolFilterOpen} onClose={() => setJavIdolFilterOpen(false)} />
       <OverlayBack open={javTagOpen} onClose={() => setJavTagOpen(false)} />
       <OverlayBack open={javFavoriteOpen} onClose={() => setJavFavoriteOpen(false)} />
       <OverlayBack open={Boolean(player)} onClose={() => useStore.getState().closePlayer()} />
