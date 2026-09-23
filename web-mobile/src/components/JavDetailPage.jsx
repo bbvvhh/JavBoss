@@ -172,6 +172,12 @@ export function JavDetailPage({ jav, onClose }) {
     }
   }
 
+  // 点预览图上的播放图标 = 用该截图所属的文件从截图所在进度开始播（与 PC 一致）。
+  const playAtScreenshot = (video, startSecond) => {
+    if (!video || startSecond == null) return
+    openPlayer(video, localVideos, startSecond)
+  }
+
   const meta = [
     jav?.release_unix ? formatReleaseDate(jav.release_unix) : '',
     jav?.duration_min ? `${jav.duration_min} ${zh('分钟', 'min')}` : '',
@@ -371,6 +377,7 @@ export function JavDetailPage({ jav, onClose }) {
             <VideoPreviewGrid
               videos={localVideos}
               emptyHint={zh('暂无视频截图', 'No video screenshots')}
+              onPlayAtTime={playAtScreenshot}
             />
           </div>
         </section>

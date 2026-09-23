@@ -258,8 +258,10 @@ export const useStore = create((set, get) => ({
   },
 
   /* ---------------- 播放器 ---------------- */
-  player: null, // { video, list }
-  openPlayer: (video, list) => set({ player: { video, list: list || get().videos } }),
+  player: null, // { video, list, startTime }
+  // startTime：从预览图（截图）跳进来时的起始进度；0 表示续播本机记录的上次进度。
+  openPlayer: (video, list, startTime = 0) =>
+    set({ player: { video, list: list || get().videos, startTime } }),
   closePlayer: () => set({ player: null }),
 
   /* ---------------- 轻提示 ---------------- */

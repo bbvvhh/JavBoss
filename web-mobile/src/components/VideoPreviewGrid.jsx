@@ -11,6 +11,7 @@ import Icon from '@/components/Icons'
 import { formatBytes, getVideoDisplayName } from '@/utils/display'
 import { getErrorMessage } from '@/utils/errors'
 import { zh } from '@/utils/i18n'
+import { screenshotStartTime } from '@/utils/screenshotTime'
 
 /**
  * 视频预览图 = MPV / 播放页里保存下来的截图（服务端抽帧，存在 JavBoss 自己的
@@ -25,6 +26,10 @@ import { zh } from '@/utils/i18n'
  * `videos` 可以传一个或多个（JAV 作品详情页要把该作品全部本地视频的预览图
  * 汇总在一起）。列表按 `id:updated_at` 做键，所以父组件每次渲染新建数组也不会
  * 触发重复请求。
+ *
+ * 传 `onPlayAtTime(video, second)` 后每张图上会出现播放图标：点图标 = 用该截图
+ * 所属的文件从截图所在进度开始播（PC 的截图弹窗、JavScreenshotGrid 也是这样），
+ * 点图上其他地方仍然是放大预览。文件名里解不出时间点时按钮置灰、不响应播放。
  */
 export default function VideoPreviewGrid({
   videos,
@@ -32,6 +37,7 @@ export default function VideoPreviewGrid({
   refreshToken = 0,
   emptyHint,
   onCoverChanged,
+  onPlayAtTime,
 }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
@@ -166,6 +172,8 @@ export default function VideoPreviewGrid({
 
   // 多视频（JAV 作品）时每张图要标出它属于哪个文件，单视频时不需要。
   const showVideoName = videoList.length > 1
+  const videoOf = (videoId) =>
+    videoList.find((video) => Number(video.id) === Number(videoId)) || null
   const videoNameOf = (videoId) =>
     getVideoDisplayName(videoList.find((video) => Number(video.id) === Number(videoId)))
 
@@ -207,29 +215,45 @@ export default function VideoPreviewGrid({
       <div className="grid grid-cols-2 gap-2.5">
         {items.map((item) => {
           const key = itemKey(item)
+          const targetVideo = videoOf(item.video_id)
+          const startSecond = screenshotStartTime(item.name)
           return (
             <div
               key={key}
               className="overflow-hidden rounded-card border border-[#e6e8ec] bg-white"
             >
-              <button
-                type="button"
-                onClick={() => setPreviewKey(key)}
-                aria-label={zh('放大查看预览图', 'Enlarge preview image')}
-                className="relative block aspect-video w-full bg-zinc-200"
-              >
-                <img
-                  src={item.url}
-                  alt={item.name}
-                  loading="lazy"
-                  className="absolute inset-0 h-full w-full object-cover"
-                />
-                {item.is_cover ? (
-                  <span className="absolute left-1.5 top-1.5 rounded bg-brand px-1.5 py-[1px] text-[10px] font-bold text-white">
-                    {zh('封面', 'Cover')}
-                  </span>
+              <div className="relative aspect-video w-full bg-zinc-200">
+                <button
+                  type="button"
+                  onClick={() => setPreviewKey(key)}
+                  aria-label={zh('放大查看预览图', 'Enlarge preview image')}
+                  className="absolute inset-0 block h-full w-full"
+                >
+                  <img
+                    src={item.url}
+                    alt={item.name}
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                  />
+                  {item.is_cover ? (
+                    <span className="absolute left-1.5 top-1.5 rounded bg-brand px-1.5 py-[1px] text-[10px] font-bold text-white">
+                      {zh('封面', 'Cover')}
+                    </span>
+                  ) : null}
+                </button>
+                {onPlayAtTime ? (
+                  <button
+                    type="button"
+                    onClick={() => onPlayAtTime(targetVideo, startSecond)}
+                    disabled={startSecond == null || !targetVideo}
+                    title={zh('从此处播放', 'Play from here')}
+                    aria-label={zh('从此处播放', 'Play from here')}
+                    className="absolute left-1/2 top-1/2 grid h-9 w-9 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-black/55 text-white shadow-[0_2px_8px_rgba(0,0,0,0.45)] active:bg-black/75 disabled:opacity-35"
+                  >
+                    <Icon name="play" size={16} />
+                  </button>
                 ) : null}
-              </button>
+              </div>
               <div className="flex items-center gap-1 px-1.5 py-1.5">
                 <span className="min-w-0 flex-1 truncate text-[10px] text-zinc-400">
                   {[

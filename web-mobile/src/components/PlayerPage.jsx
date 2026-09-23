@@ -29,7 +29,7 @@ import { zh } from '@/utils/i18n'
 
 const SAVE_INTERVAL_MS = 5000
 
-export default function PlayerPage({ video, onClose }) {
+export default function PlayerPage({ video, startTime = 0, onClose }) {
   const stageRef = useRef(null)
   const playerRef = useRef(null)
   const showToast = useStore((state) => state.showToast)
@@ -43,7 +43,9 @@ export default function PlayerPage({ video, onClose }) {
   const [player, setPlayer] = useState(null)
   const [status, setStatus] = useState('loading')
   const [errorText, setErrorText] = useState('')
-  const [resumeAt, setResumeAt] = useState(() => readProgress(video?.id))
+  // 从预览图（截图）跳进来时用请求的时间点，否则续播本机记录的上次进度。
+  const requestedStart = Math.max(0, Number(startTime) || 0)
+  const [resumeAt, setResumeAt] = useState(() => requestedStart || readProgress(video?.id))
   const [subtitles, setSubtitles] = useState([])
   const [subtitlesLoading, setSubtitlesLoading] = useState(false)
   const [activeSubtitleId, setActiveSubtitleId] = useState(null)
@@ -199,6 +201,21 @@ export default function PlayerPage({ video, onClose }) {
       patchVideo(videoKey(video), updated)
     },
     [patchVideo, video]
+  )
+
+  // 点「视频预览图」上的播放图标：直接在当前播放器里跳到截图所在进度，
+  // 不重新开播放器（点图上其他地方仍然是放大预览）。
+  const handlePlayAtTime = useCallback(
+    (target, second) => {
+      if (second == null) return
+      const player = playerRef.current
+      if (!player || player.isDisposed()) return
+      // 预览图只属于本页这一个文件；万一列表里混进别的文件就不响应。
+      if (target?.id && Number(target.id) !== Number(video?.id)) return
+      player.currentTime(second)
+      player.play()?.catch(() => {})
+    },
+    [video?.id]
   )
 
   const handleCapture = useCallback(async () => {
@@ -556,7 +573,7 @@ export default function PlayerPage({ video, onClose }) {
             </div>
           ) : null}
 
-          {resumeAt > 0 ? (
+          {resumeAt > 0 && requestedStart <= 0 ? (
             <div className="mt-3 flex items-center gap-2 rounded-[10px] border border-orange-200 bg-orange-50 px-3 py-2.5 text-[12px] text-orange-800">
               <Icon name="clock" size={15} className="flex-none" />
               <span className="flex-1">
@@ -629,6 +646,7 @@ export default function PlayerPage({ video, onClose }) {
               allowSetCover
               refreshToken={previewToken}
               onCoverChanged={handleCoverChanged}
+              onPlayAtTime={handlePlayAtTime}
             />
           </div>
         </section>
