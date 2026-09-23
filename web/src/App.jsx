@@ -5020,6 +5020,11 @@ export default function App() {
           const cfg = await updateConfig({ initial_view_mode: normalizeInitialViewMode(mode) })
           useStore.setState({ config: cfg })
         }}
+        coverRedownloadOnMissing={configFlag(config?.jav_cover_redownload_on_missing, true)}
+        onSaveCoverRedownloadOnMissing={async (enabled) => {
+          const cfg = await updateConfig({ jav_cover_redownload_on_missing: Boolean(enabled) })
+          useStore.setState({ config: cfg })
+        }}
         playerWindowWidth={
           Number.parseInt(config?.player_window_width, 10) ||
           Number.parseInt(config?.player_window_size, 10) ||

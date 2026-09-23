@@ -4,6 +4,7 @@ import videojs from 'video.js'
 import 'video.js/dist/video-js.css'
 
 import {
+  createVideoScreenshot,
   fetchPlaybackInfo,
   fetchVideoSubtitleVTT,
   fetchVideoSubtitles,
@@ -14,6 +15,7 @@ import Icon from '@/components/Icons'
 import PlayerControls from '@/components/PlayerControls'
 import SubtitleSheet from '@/components/SubtitleSheet'
 import usePlayerGesture from '@/hooks/usePlayerGesture'
+import { useStore } from '@/store'
 import { formatBoostSpeed } from '@/utils/boostSpeed'
 import { selectPlaybackSource, startBrowserPlayback } from '@/utils/browserPlayback'
 import { getVideoDisplayName, parseVideoFingerprint, formatBytes } from '@/utils/display'
@@ -29,6 +31,7 @@ const SAVE_INTERVAL_MS = 5000
 export default function PlayerPage({ video, onClose }) {
   const stageRef = useRef(null)
   const playerRef = useRef(null)
+  const showToast = useStore((state) => state.showToast)
   // 已挂到 video.js 上的字幕轨（含 blob URL，销毁时必须回收）。
   const subtitleTracksRef = useRef([])
   const activeSubtitleRef = useRef(null)
@@ -178,6 +181,38 @@ export default function PlayerPage({ video, onClose }) {
     // 拖画面调进度：拖动期间不动视频，松手才定位一次（避免反复重新加载）。
     onSeekCommit: (time) => playerRef.current?.currentTime(time),
   })
+
+  // 截图：把当前播放位置交给服务端抽帧，产出进「截图列表」，与 PC/MPV 一致
+  // （截完不会自动改封面，是否设为封面仍在截图页里手动决定）。
+  const capturingRef = useRef(false)
+  const [capturing, setCapturing] = useState(false)
+
+  const handleCapture = useCallback(async () => {
+    const player = playerRef.current
+    if (!player || !video?.id || capturingRef.current) return
+    capturingRef.current = true
+    setCapturing(true)
+    // 先取位置再暂停：暂停不会移动播放位置，但先读一次更贴近「按下时看到的那一帧」。
+    const second = Math.max(0, Number(player.currentTime()) || 0)
+    const wasPlaying = !player.paused()
+    // 抽帧是在同一台设备（Termux）上另起一个 ffmpeg 做 seek + 解码，会和浏览器
+    // 当前的解码抢 CPU；暂停既能让抽帧快一点，也保证抽到的正是停在屏幕上的那一帧。
+    if (wasPlaying) player.pause()
+    try {
+      await createVideoScreenshot(video.id, { second, locationId: video.location_id })
+      showToast(zh('截图已生成', 'Screenshot created'))
+    } catch (error) {
+      showToast(getErrorMessage(error))
+    } finally {
+      capturingRef.current = false
+      setCapturing(false)
+      // 等待期间播放页可能已被关闭（用户返回），或视频正好播完：只有播放器还是
+      // 同一个实例、且没播到结尾时才恢复播放 —— 对已结束的媒体调 play() 会跳回开头。
+      if (wasPlaying && playerRef.current === player && !player.isDisposed() && !player.ended()) {
+        player.play()?.catch(() => {})
+      }
+    }
+  }, [showToast, video])
 
   // 全屏状态：全屏时所有浮层都要搬进播放器元素里。
   // 全屏元素是 .video-js，它外面的内容浏览器一律不渲染 —— 不搬进去，
@@ -403,6 +438,8 @@ export default function PlayerPage({ video, onClose }) {
       overlay={Boolean(portalTarget)}
       blocked={gestureActive}
       fullscreen={fullscreen}
+      onCapture={handleCapture}
+      capturing={capturing}
     />
   )
 

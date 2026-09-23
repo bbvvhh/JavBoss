@@ -197,6 +197,52 @@ func TestUpdateConfigAcceptsBrowserPlayerAndLANAccess(t *testing.T) {
 	}
 }
 
+func TestUpdateConfigPersistsCoverRedownloadOnMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	database, err := dbpkg.Open(filepath.Join(t.TempDir(), "config.db"))
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	sqlDB, err := database.DB()
+	if err != nil {
+		t.Fatalf("database handle: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	previousDB := common.DB
+	common.DB = database
+	t.Cleanup(func() { common.DB = previousDB })
+
+	// 未写入该键时必须保持旧行为（自动补下开启）。
+	if !javCoverRedownloadOnMissingEnabled(context.Background()) {
+		t.Fatal("missing config key should default to enabled")
+	}
+
+	router := gin.New()
+	router.PATCH("/config", updateConfig)
+	req := httptest.NewRequest(
+		http.MethodPatch,
+		"/config",
+		bytes.NewReader([]byte(`{"jav_cover_redownload_on_missing": false}`)),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, req)
+	if response.Code != http.StatusOK {
+		t.Fatalf("update config status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	got, err := dbpkg.ListConfig(context.Background())
+	if err != nil {
+		t.Fatalf("list config: %v", err)
+	}
+	if got[JavCoverRedownloadOnMissingKey] != "false" {
+		t.Fatalf("%s = %q, want false", JavCoverRedownloadOnMissingKey, got[JavCoverRedownloadOnMissingKey])
+	}
+	if javCoverRedownloadOnMissingEnabled(context.Background()) {
+		t.Fatal("disabled setting should stop cover redownloads")
+	}
+}
+
 func TestIsRemoteRequest(t *testing.T) {
 	tests := []struct {
 		name       string

@@ -42,6 +42,10 @@ const BUTTON_CLASS =
  *
  * `overlay`：全屏时由 PlayerPage portal 进 `.video-js` 内部（全屏元素外面的内容
  * 浏览器不渲染），这时压在最底部，并跟随控制条自动隐藏。
+ *
+ * `onCapture`/`capturing`：截图由 PlayerPage 负责发请求（它才知道 video 与播放位置），
+ * 这里只提供按钮与等待反馈。抽帧在服务端做，手机上可能要等上一两秒，所以按钮必须
+ * 有「进行中」状态，否则用户会以为没点上而反复点。
  */
 export default function PlayerControls({
   player,
@@ -49,6 +53,8 @@ export default function PlayerControls({
   overlay = false,
   blocked = false,
   fullscreen = false,
+  onCapture,
+  capturing = false,
 }) {
   const trackRef = useRef(null)
   const dragRef = useRef(null)
@@ -392,6 +398,23 @@ export default function PlayerControls({
         >
           {rate}x
         </button>
+
+        {onCapture ? (
+          <button
+            type="button"
+            onClick={onCapture}
+            disabled={!ready || disabled || capturing}
+            aria-label={zh('截取当前画面', 'Capture current frame')}
+            aria-busy={capturing}
+            className={BUTTON_CLASS}
+          >
+            {capturing ? (
+              <span className="spin h-3.5 w-3.5 rounded-full border-2 border-white/30 border-t-white" />
+            ) : (
+              <Icon name="camera" size={18} />
+            )}
+          </button>
+        ) : null}
 
         {pipSupported ? (
           <button

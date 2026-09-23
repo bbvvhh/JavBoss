@@ -111,6 +111,7 @@ func updateConfig(c *gin.Context) {
 		IdolSort               string                `json:"idol_sort"`
 		JavIdolPreferChinese   *bool                 `json:"jav_idol_prefer_chinese_name"`
 		JavTagShowSimplified   *bool                 `json:"jav_tag_show_simplified"`
+		JavCoverRedownload     *bool                 `json:"jav_cover_redownload_on_missing"`
 		DefaultPlayer          string                `json:"default_player"`
 		InitialViewMode        string                `json:"initial_view_mode"`
 		AllowLANAccess         *bool                 `json:"allow_lan_access"`
@@ -284,6 +285,9 @@ func updateConfig(c *gin.Context) {
 	}
 	if req.JavTagShowSimplified != nil {
 		entries["jav_tag_show_simplified"] = strconv.FormatBool(*req.JavTagShowSimplified)
+	}
+	if req.JavCoverRedownload != nil {
+		entries[JavCoverRedownloadOnMissingKey] = strconv.FormatBool(*req.JavCoverRedownload)
 	}
 	if s := strings.ToLower(strings.TrimSpace(req.DefaultPlayer)); s != "" {
 		switch s {

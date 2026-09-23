@@ -8,6 +8,7 @@ import Switch from '@/components/form/Switch'
 import { buttonClass } from '@/components/form/Field'
 import useAsyncData from '@/hooks/useAsyncData'
 import { useStore } from '@/store'
+import { configFlag } from '@/utils/config'
 import { getErrorMessage } from '@/utils/errors'
 import { zh } from '@/utils/i18n'
 
@@ -20,9 +21,16 @@ import { zh } from '@/utils/i18n'
  *   2. 把各目录的自动刮削开关集中在一处（等价于 PC 端目录里的自动扫描设置）；
  *   3. 提供 JAV 标签分类整理（唯一一个真正"全局"的刮削相关动作）。
  * 单个视频的刮削模式在视频长按菜单 →「刮削设置」里。
+ *
+ * 唯一的例外是「封面缺失自动补下」：它是后端 `jav_cover_redownload_on_missing`
+ * 配置键，控制页面请求封面 404 时是否顺带重新下载，所以放在这里即时保存。
  */
 export default function ScrapeSettingsPage({ onClose }) {
   const showToast = useStore((state) => state.showToast)
+  const config = useStore((state) => state.config)
+  const saveConfig = useStore((state) => state.saveConfig)
+
+  const coverRedownload = configFlag(config, 'jav_cover_redownload_on_missing', true)
 
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState('')
@@ -180,6 +188,38 @@ export default function ScrapeSettingsPage({ onClose }) {
           'Turning auto scan off keeps everything already scraped. Adjust intervals per directory under Directories.'
         )}
       </p>
+
+      <h3 className="px-4 pb-1.5 pt-4 text-[12px] font-semibold text-zinc-500">
+        {zh('封面补下', 'Cover refetch')}
+      </h3>
+      <div className="mx-3 rounded-card bg-white px-4 py-3 shadow-[0_1px_2px_rgba(16,24,40,0.05)]">
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <span className="block text-[12.5px] leading-snug text-zinc-800">
+              {zh('封面缺失时自动重新下载', 'Refetch missing covers')}
+            </span>
+            <span className="mt-0.5 block text-[11px] leading-relaxed text-zinc-400">
+              {zh(
+                '打开 JAV 页面时，本地没有封面文件就按番号重新下一次。关闭后页面请求不再触发下载，只在目录扫描完成后补漏。',
+                'Missing covers are downloaded again by code when a JAV page is opened. When off, page requests stop triggering downloads; covers are only refilled after a directory scan.'
+              )}
+            </span>
+          </div>
+          <Switch
+            checked={coverRedownload}
+            disabled={busy}
+            label={zh('封面缺失时自动重新下载', 'Refetch missing covers')}
+            onChange={(value) =>
+              run(
+                () => saveConfig({ jav_cover_redownload_on_missing: value }),
+                value
+                  ? zh('已开启封面自动补下', 'Cover refetch on')
+                  : zh('已关闭封面自动补下', 'Cover refetch off')
+              )
+            }
+          />
+        </div>
+      </div>
 
       <h3 className="px-4 pb-1.5 pt-4 text-[12px] font-semibold text-zinc-500">
         {zh('标签整理', 'Tag housekeeping')}

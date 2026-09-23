@@ -247,7 +247,7 @@ POST /videos/locations/hide
 | 媒体库 | JAV 标签 | 同上；刮削标签只读，另有「整理分类」（读 JavBus） |
 | 媒体库 | 收藏夹管理 | 作品 / 女优 / 片商 / 系列四类；分组 CRUD、排序、条目管理与人手排序 |
 | 播放与刮削 | 播放设置 | 本机续播开关、清空观看记录；并说明 MPV 相关项为桌面端专属 |
-| 播放与刮削 | 刮削设置 | 刮削进度汇总、各目录自动刮削开关、JAV 标签分类整理 |
+| 播放与刮削 | 刮削设置 | 刮削进度汇总、各目录自动刮削开关、封面缺失自动补下、JAV 标签分类整理 |
 | 播放与刮削 | 字幕 | 在线字幕接口地址（默认迅雷）、接口测试、一键下载所有 JAV 视频字幕与进度 |
 | 播放与刮削 | 下载器与任务 | 基本设置、CloudDrive2（含连接测试）、任务列表（轮询 / 重试 / 取消 / 删除记录 / 新建） |
 | 系统与集成 | 全局设置 | 分页 / 排序 / 初始页面 / JAV 显示 / 网络，并列出桌面端专属项 |
@@ -286,7 +286,8 @@ POST /videos/locations/hide
 - 真正接进移动端界面的键：`initial_view_mode`、`video_page_size`、`video_sort`、
   `video_hide_jav`、`jav_page_size`、`jav_sort`、`idol_sort`、`idol/studio/series_page_size`、
   `jav_hide_idols`、`jav_hide_tags`、`jav_hide_series`、`jav_idol_prefer_chinese_name`、
-  `jav_tag_show_simplified`、`allow_lan_access`、`proxy_host`、`proxy_port`。
+  `jav_tag_show_simplified`、`jav_cover_redownload_on_missing`、`allow_lan_access`、
+  `proxy_host`、`proxy_port`。
 - `allow_lan_access` **需要重启 JavBoss** 才生效（后端只在启动时读它），界面上有标注。
 
 ### 页面栈与返回

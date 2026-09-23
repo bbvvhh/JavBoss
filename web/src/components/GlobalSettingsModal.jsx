@@ -27,6 +27,11 @@ const SETTINGS_SECTIONS = [
     summary: { zh: '界面提示与交互行为', en: 'Interface hints and interactions' },
   },
   {
+    id: 'scrape',
+    title: { zh: '刮削', en: 'Scraping' },
+    summary: { zh: '封面缺失时的补下行为', en: 'Cover refetch behaviour' },
+  },
+  {
     id: 'shortcuts',
     title: { zh: '快捷键', en: 'Shortcuts' },
     summary: { zh: '自定义网页操作快捷键', en: 'Customize web shortcuts' },
@@ -101,6 +106,8 @@ export default function GlobalSettingsModal({
   onSaveDefaultPlayer,
   initialViewMode,
   onSaveInitialViewMode,
+  coverRedownloadOnMissing = true,
+  onSaveCoverRedownloadOnMissing,
   playerWindowWidth,
   playerWindowHeight,
   playerOntop,
@@ -134,6 +141,9 @@ export default function GlobalSettingsModal({
   const [initialViewModeInput, setInitialViewModeInput] = useState('video')
   const [initialViewModeError, setInitialViewModeError] = useState('')
   const [savingInitialViewMode, setSavingInitialViewMode] = useState(false)
+  const [coverRedownloadInput, setCoverRedownloadInput] = useState(true)
+  const [coverRedownloadError, setCoverRedownloadError] = useState('')
+  const [savingCoverRedownload, setSavingCoverRedownload] = useState(false)
   const [playerTab, setPlayerTab] = useState('basic')
   const [playerBasicError, setPlayerBasicError] = useState('')
   const [playerBasicSuccess, setPlayerBasicSuccess] = useState('')
@@ -211,6 +221,8 @@ export default function GlobalSettingsModal({
       setDefaultPlayerError('')
       setInitialViewModeInput(initialViewMode === 'jav' ? 'jav' : 'video')
       setInitialViewModeError('')
+      setCoverRedownloadInput(coverRedownloadOnMissing === true)
+      setCoverRedownloadError('')
       setPlayerWindowWidthInput(String(playerWindowWidth ?? PLAYER_BASIC_DEFAULTS.windowWidth))
       setPlayerWindowHeightInput(String(playerWindowHeight ?? PLAYER_BASIC_DEFAULTS.windowHeight))
       setPlayerOntopInput(playerOntop ?? PLAYER_BASIC_DEFAULTS.ontop)
@@ -235,6 +247,7 @@ export default function GlobalSettingsModal({
     allowLANAccess,
     defaultPlayer,
     initialViewMode,
+    coverRedownloadOnMissing,
     playerWindowWidth,
     playerWindowHeight,
     playerOntop,
@@ -627,6 +640,70 @@ export default function GlobalSettingsModal({
       {renderProxyPanel()}
     </div>
   )
+
+  const renderScrapePanel = () => {
+    const unchanged = coverRedownloadInput === (coverRedownloadOnMissing === true)
+
+    const handleSave = async () => {
+      setCoverRedownloadError('')
+      setSavingCoverRedownload(true)
+      try {
+        await onSaveCoverRedownloadOnMissing?.(coverRedownloadInput)
+      } catch (err) {
+        setCoverRedownloadError(getErrorMessage(err))
+      } finally {
+        setSavingCoverRedownload(false)
+      }
+    }
+
+    return (
+      <div className="space-y-5">
+        <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <div className="space-y-4">
+            <div>
+              <h4 className="text-sm font-semibold text-zinc-800">
+                {zh('缺失封面自动补下', 'Refetch Missing Covers')}
+              </h4>
+              <p className="mt-1 text-sm text-zinc-500">
+                {zh(
+                  '打开 JAV 页面时，如果本地没有该番号的封面文件，就按番号重新下载一次。关闭后页面请求不再触发下载，封面只在目录扫描完成后补漏。',
+                  'When a JAV page is opened, a cover that is missing locally is downloaded again by its code. When disabled, page requests no longer trigger downloads and covers are only refilled after a directory scan.'
+                )}
+              </p>
+            </div>
+
+            <label className="flex items-center gap-3 text-sm font-medium text-zinc-800">
+              <input
+                type="checkbox"
+                checked={coverRedownloadInput}
+                onChange={(event) => {
+                  setCoverRedownloadInput(event.target.checked)
+                  setCoverRedownloadError('')
+                }}
+                className="h-4 w-4 rounded"
+              />
+              <span>{zh('封面文件缺失时自动重新下载', 'Refetch missing cover files')}</span>
+            </label>
+
+            {coverRedownloadError ? (
+              <div className="text-sm text-red-600">{coverRedownloadError}</div>
+            ) : null}
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={savingCoverRedownload || unchanged}
+                className="rounded-xl bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-60"
+              >
+                {savingCoverRedownload ? zh('保存中…', 'Saving...') : zh('保存', 'Save')}
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    )
+  }
 
   const renderDisplayPanel = () => {
     const currentInitialViewMode = initialViewMode === 'jav' ? 'jav' : 'video'
@@ -1485,6 +1562,7 @@ export default function GlobalSettingsModal({
           }`}
         >
           {currentSection === 'display' && renderDisplayPanel()}
+          {currentSection === 'scrape' && renderScrapePanel()}
           {currentSection === 'shortcuts' && renderShortcutsPanel()}
           {currentSection === 'network' && renderNetworkPanel()}
           {currentSection === 'tools' && renderToolsPanel()}
