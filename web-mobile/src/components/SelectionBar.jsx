@@ -40,8 +40,11 @@ export function SelectionTopBar() {
  * 多选态底部批量操作栏。
  * 只列真正可用且只写数据库的操作；「移出媒体库」等后端接口（P3）落地后再启用。
  * 这里永远不会有「删除文件」。
+ *
+ * 「JAV 标签」只对已关联 JAV 的视频生效（标签打在作品上），未关联的会被跳过 ——
+ * 调用方在打开抽屉前就该拦掉「一个都打不了」的情况。
  */
-export function SelectionActionBar({ onOpenTags }) {
+export function SelectionActionBar({ onOpenTags, onOpenRemoveTags, onOpenJavTags }) {
   const selectedKeys = useStore((state) => state.selectedKeys)
   const videos = useStore((state) => state.videos)
 
@@ -57,21 +60,39 @@ export function SelectionActionBar({ onOpenTags }) {
         type="button"
         disabled={disabled}
         onClick={() => onOpenTags(selectedVideos)}
-        className="flex flex-1 flex-col items-center gap-1 text-[10.5px] font-semibold text-zinc-700 disabled:opacity-40"
+        className="flex flex-1 flex-col items-center gap-1 text-[10px] font-semibold text-zinc-700 disabled:opacity-40"
       >
         <Icon name="tag" size={21} />
         {zh('打标签', 'Tag')}
       </button>
       <button
         type="button"
+        disabled={disabled}
+        onClick={() => onOpenRemoveTags(selectedVideos)}
+        className="flex flex-1 flex-col items-center gap-1 text-[10px] font-semibold text-zinc-700 disabled:opacity-40"
+      >
+        <Icon name="minus" size={21} />
+        {zh('移除标签', 'Untag')}
+      </button>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onOpenJavTags}
+        className="flex flex-1 flex-col items-center gap-1 text-[10px] font-semibold text-zinc-700 disabled:opacity-40"
+      >
+        <Icon name="film" size={21} />
+        {zh('JAV 标签', 'JAV tag')}
+      </button>
+      <button
+        type="button"
         disabled
         title={zh('需要后端接口支持', 'Needs a backend endpoint')}
-        className="flex flex-1 flex-col items-center gap-1 text-[10.5px] font-semibold text-zinc-300"
+        className="flex flex-1 flex-col items-center gap-1 text-[10px] font-semibold text-zinc-300"
       >
         <Icon name="shield" size={21} />
         {zh('移出媒体库', 'Hide')}
       </button>
-      <div className="flex flex-1 flex-col items-center gap-1 text-[10.5px] font-semibold text-zinc-300">
+      <div className="flex flex-1 flex-col items-center gap-1 text-[10px] font-semibold text-zinc-300">
         <Icon name="ban" size={21} />
         {zh('删除文件', 'Delete')}
       </div>

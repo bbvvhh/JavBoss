@@ -49,6 +49,9 @@ export default function App() {
   const [javBatchTagOpen, setJavBatchTagOpen] = useState(false)
   const [javBatchFavoriteOpen, setJavBatchFavoriteOpen] = useState(false)
   const [tagTargets, setTagTargets] = useState(null)
+  const [tagRemoveTargets, setTagRemoveTargets] = useState(null)
+  const [videoJavTagOpen, setVideoJavTagOpen] = useState(false)
+  const [videoJavTagIds, setVideoJavTagIds] = useState([])
   const [ready, setReady] = useState(false)
 
   const view = useStore((state) => state.view)
@@ -101,6 +104,27 @@ export default function App() {
   // JAV 作品多选只在「作品」子分类下成立：女优 / 片商 / 系列没有批量操作。
   const javSelectionAlive = javSelectionMode && view === 'jav' && javTab === 'works'
   const javSelectedIdList = Array.from(javSelectedIds)
+
+  /**
+   * 「JAV 标签」：标签最终打在作品上，所以要先把所选视频关联的作品 id 取出来。
+   * 一个都没关联时直接提示，不打开一个「选了标签也没用」的抽屉。
+   */
+  const openVideoJavTags = () => {
+    const ids = useStore.getState().selectedJavIds()
+    if (ids.length === 0) {
+      useStore
+        .getState()
+        .showToast(
+          zh(
+            '所选视频都没有关联 JAV，无法加 JAV 标签',
+            'None of the selected videos is linked to a JAV item'
+          )
+        )
+      return
+    }
+    setVideoJavTagIds(ids)
+    setVideoJavTagOpen(true)
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-[#eff1f4]">
@@ -198,7 +222,11 @@ export default function App() {
       )}
 
       {selectionMode && view === 'video' ? (
-        <SelectionActionBar onOpenTags={(list) => setTagTargets(list)} />
+        <SelectionActionBar
+          onOpenTags={(list) => setTagTargets(list)}
+          onOpenRemoveTags={(list) => setTagRemoveTargets(list)}
+          onOpenJavTags={openVideoJavTags}
+        />
       ) : javSelectionAlive ? (
         <JavSelectionActionBar
           onOpenTags={() => setJavBatchTagOpen(true)}
@@ -244,6 +272,29 @@ export default function App() {
         />
       ) : null}
 
+      {tagRemoveTargets ? (
+        <TagEditorSheet
+          open
+          videos={tagRemoveTargets}
+          initialMode="remove"
+          onClose={() => {
+            setTagRemoveTargets(null)
+            useStore.getState().exitSelection()
+          }}
+        />
+      ) : null}
+
+      {/* 视频多选 → JAV 标签：javIds 是所选视频关联的作品 id */}
+      <JavBatchTagSheet
+        open={videoJavTagOpen}
+        javIds={videoJavTagIds}
+        onClose={() => setVideoJavTagOpen(false)}
+        onApplied={() => {
+          setVideoJavTagOpen(false)
+          useStore.getState().exitSelection()
+        }}
+      />
+
       <OverlayBack open={searchOpen} onClose={() => setSearchOpen(false)} />
       <OverlayBack open={filterOpen} onClose={() => setFilterOpen(false)} />
       <OverlayBack open={javFilterOpen} onClose={() => setJavFilterOpen(false)} />
@@ -252,6 +303,7 @@ export default function App() {
       <OverlayBack open={javFavoriteOpen} onClose={() => setJavFavoriteOpen(false)} />
       <OverlayBack open={javBatchTagOpen} onClose={() => setJavBatchTagOpen(false)} />
       <OverlayBack open={javBatchFavoriteOpen} onClose={() => setJavBatchFavoriteOpen(false)} />
+      <OverlayBack open={videoJavTagOpen} onClose={() => setVideoJavTagOpen(false)} />
       <OverlayBack open={Boolean(player)} onClose={() => useStore.getState().closePlayer()} />
       <OverlayBack open={selectionMode} onClose={() => useStore.getState().exitSelection()} />
       <OverlayBack

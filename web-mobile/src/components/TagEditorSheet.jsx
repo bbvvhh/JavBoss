@@ -10,15 +10,19 @@ import { zh } from '@/utils/i18n'
 /**
  * 标签编辑。单视频与批量共用同一个组件。
  * 单视频默认「替换」；批量时可切换「追加 / 移除 / 替换」，避免误伤其它标签。
+ * `initialMode` 让「移除标签」入口直接落在移除模式（PC 端也是两个独立按钮）。
  */
-export default function TagEditorSheet({ open, videos, onClose }) {
+export default function TagEditorSheet({ open, videos, onClose, initialMode = 'add' }) {
   const tagOptions = useStore((state) => state.tags)
   const loadTags = useStore((state) => state.loadTags)
   const loadVideos = useStore((state) => state.loadVideos)
   const showToast = useStore((state) => state.showToast)
 
+  // 从「移除标签」进来时永远是批量语义：单视频的语义是「替换成勾选的标签」，
+  // 用它来移除等于把没勾的标签全删掉。
+  const forceBatch = initialMode === 'remove'
   // 单视频时用它的现有标签作为初始选择。
-  const single = videos?.length === 1 ? videos[0] : null
+  const single = !forceBatch && videos?.length === 1 ? videos[0] : null
   const initialNames = useMemo(
     () => (single?.tags || []).map((tag) => tag.name).filter(Boolean),
     [single]
@@ -26,7 +30,7 @@ export default function TagEditorSheet({ open, videos, onClose }) {
 
   const [selected, setSelected] = useState(() => new Set())
   const [query, setQuery] = useState('')
-  const [batchMode, setBatchMode] = useState('add')
+  const [batchMode, setBatchMode] = useState(initialMode)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -34,9 +38,9 @@ export default function TagEditorSheet({ open, videos, onClose }) {
     if (!open) return
     setSelected(new Set(initialNames))
     setQuery('')
-    setBatchMode('add')
+    setBatchMode(initialMode)
     setError('')
-  }, [open, initialNames])
+  }, [open, initialNames, initialMode])
 
   useEffect(() => {
     if (!open) return
@@ -122,7 +126,9 @@ export default function TagEditorSheet({ open, videos, onClose }) {
 
   const title = single
     ? zh('编辑标签', 'Edit tags')
-    : zh(`批量标签 · ${videos?.length || 0} 个`, `Bulk tags · ${videos?.length || 0}`)
+    : batchMode === 'remove'
+      ? zh(`移除标签 · ${videos?.length || 0} 个`, `Remove tags · ${videos?.length || 0}`)
+      : zh(`批量标签 · ${videos?.length || 0} 个`, `Bulk tags · ${videos?.length || 0}`)
 
   return (
     <BottomSheet

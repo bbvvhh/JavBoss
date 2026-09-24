@@ -9,7 +9,10 @@ import { formatCount } from '@/utils/format'
 import { zh } from '@/utils/i18n'
 
 /**
- * JAV 作品多选后的两个批量操作抽屉。
+ * JAV 标签 / 收藏夹的批量操作抽屉。
+ *
+ * - JavBatchTagSheet：JAV 作品多选、视频多选（标签打在视频关联的作品上）都用它。
+ * - JavBatchFavoriteSheet：只用于作品多选（把作品加入收藏夹）。
  *
  * 两者都只写 javboss.db（标签关联 / 收藏夹归属），不会碰任何用户文件 ——
  * 这是移动端的硬约束：没有删除、没有移动、没有覆盖。
@@ -57,7 +60,7 @@ export function JavBatchTagSheet({ open, javIds, onClose, onApplied }) {
       await addJavTagToJavs(tagId, ids)
       // 列表是无限滚动的本地状态，改完得让它重拉一次才能看到新标签。
       bumpJavListVersion()
-      showToast(zh(`已给 ${ids.length} 部作品加上标签`, `Tagged ${ids.length} works`))
+      showToast(zh(`已给 ${ids.length} 个 JAV 加上标签`, `Tagged ${ids.length} JAV items`))
       onApplied?.()
     } catch (err) {
       setError(getErrorMessage(err))
@@ -71,8 +74,8 @@ export function JavBatchTagSheet({ open, javIds, onClose, onApplied }) {
       open={open}
       title={zh('加 JAV 标签', 'Add JAV tag')}
       subtitle={zh(
-        `将应用到 ${javIds?.length || 0} 部作品`,
-        `Applies to ${javIds?.length || 0} works`
+        `将应用到 ${javIds?.length || 0} 个 JAV`,
+        `Applies to ${javIds?.length || 0} JAV items`
       )}
       onClose={onClose}
       height="78vh"

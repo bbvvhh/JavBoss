@@ -533,6 +533,24 @@ export const useStore = create((set, get) => ({
     return Array.from(ids)
   },
 
+  /**
+   * 所选视频关联的 JAV 作品 id（去重）。
+   *
+   * 「批量加 JAV 标签」实际是打在作品的 JAV 记录上，而未刮削 / 未关联的视频
+   * 没有 JAV 可打，只能跳过 —— 调用方用返回值为空来判断「一个都打不了」。
+   */
+  selectedJavIds: () => {
+    const meta = get().selectedMeta || {}
+    const ids = new Set()
+    for (const video of get().videos || []) {
+      if (!meta[videoKey(video)]) continue
+      const jav = video?.jav || video?.locations?.[0]?.jav || null
+      const id = Number(jav?.id)
+      if (Number.isFinite(id) && id > 0) ids.add(id)
+    }
+    return Array.from(ids)
+  },
+
   /* ---------------- JAV 作品多选 ---------------- */
 
   /**
