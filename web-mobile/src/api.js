@@ -504,6 +504,18 @@ export async function addJavsToFavoriteGroups(javIds, groupIds) {
   })
 }
 
+/**
+ * 批量给作品加 JAV 标签。
+ *
+ * 后端的 `/jav/tags/add` 是**追加**语义（对比 `/jav/tags/replace` 会覆盖掉作品
+ * 已有的其它标签），移动端的批量操作只用前者，避免误删已刮削的标签。
+ */
+export async function addJavTagToJavs(tagId, javIds) {
+  await requestOK('POST', `/jav/tags/add`, {
+    body: { tag_id: tagId, jav_ids: javIds },
+  })
+}
+
 export async function updateJavItem(id, payload) {
   return requestJSON('PUT', `/jav/items/${encodeURIComponent(id)}`, { body: payload || {} })
 }

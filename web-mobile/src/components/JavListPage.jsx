@@ -85,6 +85,12 @@ export default function JavListPage() {
   // 详情页里改过喜爱度 / 收藏夹的条目：列表本身是无限滚动的本地状态，
   // 用 store 里的增量补丁合并回来，否则返回列表看不到刚改的值。
   const itemPatches = useStore((state) => state.javItemPatches)
+  // 多选态只对作品页有意义：女优 / 片商 / 系列没有批量操作。
+  const javSelectionMode = useStore((state) => state.javSelectionMode)
+  const javSelectedIds = useStore((state) => state.javSelectedIds)
+  const setJavSelectable = useStore((state) => state.setJavSelectable)
+  // 批量改完标签后由 store 自增，作为重新拉取的信号。
+  const javListVersion = useStore((state) => state.javListVersion)
 
   // 每页数量与女优默认排序都来自全局设置（缺省值与 PC 端一致）。
   const pageSize = javPageSize(config, tab)
@@ -176,6 +182,25 @@ export default function JavListPage() {
     load(0)
   }, [load])
 
+  /**
+   * 批量加标签之后由 store 自增 `javListVersion`，用来自动重拉一次列表。
+   *
+   * 用 ref 记住已处理的版本，而不是把版本塞进 `load` 的依赖里：后者会让
+   * 「筛选条件变了」和「要求重拉」两种触发在同一个 effect 里各发一次请求。
+   */
+  const handledVersionRef = useRef(javListVersion)
+  useEffect(() => {
+    if (javListVersion === handledVersionRef.current) return
+    handledVersionRef.current = javListVersion
+    load(0)
+  }, [javListVersion, load])
+
+  // 把已加载的作品 id 交给 store，多选态顶栏的「全选」才有名单可用。
+  const selectionAlive = javSelectionMode && tab === 'works'
+  useEffect(() => {
+    setJavSelectable(tab === 'works' ? items : [])
+  }, [tab, items, setJavSelectable])
+
   const hasNext = items.length < total
 
   useEffect(() => {
@@ -227,7 +252,7 @@ export default function JavListPage() {
         </div>
       ) : null}
 
-      <main className="min-h-0 flex-1">
+      <main className="min-h-0 flex-1" style={selectionAlive ? { paddingBottom: 76 } : undefined}>
         {loading ? (
           <div
             className="grid gap-2.5 p-2.5"
@@ -265,6 +290,10 @@ export default function JavListPage() {
                     item={decorateWork(item)}
                     density={javDensity}
                     onOpen={(value) => pushPage('jav-detail', value)}
+                    selectionMode={selectionAlive}
+                    selected={javSelectedIds.has(Number(item.id))}
+                    onToggle={(value) => useStore.getState().toggleJavSelection(value)}
+                    onLongPress={(value) => useStore.getState().enterJavSelection(value)}
                   />
                 ))}
               </div>

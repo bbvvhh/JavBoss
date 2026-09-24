@@ -388,6 +388,16 @@ export const useStore = create((set, get) => ({
   clearJavFilters: () => set({ javFilters: { ...EMPTY_JAV_FILTERS } }),
 
   /**
+   * 列表重拉信号。
+   *
+   * JavListPage 的列表数据是自己的本地状态（无限滚动），批量改完标签后
+   * 需要它主动重拉一次才能看到新标签，但又没法从外部直接调它的 load()，
+   * 于是用一个自增计数当作 effect 依赖。
+   */
+  javListVersion: 0,
+  bumpJavListVersion: () => set((state) => ({ javListVersion: state.javListVersion + 1 })),
+
+  /**
    * 从女优 / 片商 / 系列跳转到「对应的影片」。
    * 行为刻意做成可预测的：切到作品 tab、用传入的条件**替换**整套筛选、退出随机、
    * 露出作品列表并回到顶部。用户随后可以在「筛选」抽屉里看到并清掉这些条件。
@@ -523,6 +533,54 @@ export const useStore = create((set, get) => ({
     return Array.from(ids)
   },
 
+  /* ---------------- JAV 作品多选 ---------------- */
+
+  /**
+   * JAV 作品的多选与视频多选**分开存放**：两边的 id 空间不同（作品表 vs 视频表），
+   * 而且用户可能先在视频模式选中若干项、再切到 JAV 模式，共用一份状态会串数据。
+   *
+   * 这里只存作品 id：批量加标签 / 加收藏夹接口要的就是 id 数组，不需要额外元信息。
+   */
+  javSelectionMode: false,
+  javSelectedIds: new Set(),
+  /** 当前已加载的作品 id，由 JavListPage 同步，供「全选」使用（对应视频模式的 videos）。 */
+  javSelectableIds: [],
+
+  setJavSelectable: (items) => {
+    const ids = (items || [])
+      .map((item) => Number(item?.id))
+      .filter((id) => Number.isFinite(id) && id > 0)
+    const current = get().javSelectableIds
+    // 无限滚动每加载一页都会重跑这个同步；逐项比较没必要，首尾 + 长度一致就认为没变。
+    // 少了这层短路，set → 重渲染 → effect → set 会转成死循环。
+    if (
+      current.length === ids.length &&
+      current[0] === ids[0] &&
+      current[current.length - 1] === ids[ids.length - 1]
+    ) {
+      return
+    }
+    set({ javSelectableIds: ids })
+  },
+
+  enterJavSelection: (item) => {
+    const id = javSelectionId(item)
+    if (!id) return
+    set({ javSelectionMode: true, javSelectedIds: new Set([id]) })
+  },
+  exitJavSelection: () => set({ javSelectionMode: false, javSelectedIds: new Set() }),
+  toggleJavSelection: (item) => {
+    const id = javSelectionId(item)
+    if (!id) return
+    const ids = new Set(get().javSelectedIds)
+    if (ids.has(id)) ids.delete(id)
+    else ids.add(id)
+    set({ javSelectedIds: ids })
+  },
+  selectAllJavs: () => set({ javSelectedIds: new Set(get().javSelectableIds) }),
+  clearJavSelection: () => set({ javSelectedIds: new Set() }),
+  javSelectedIdList: () => Array.from(get().javSelectedIds),
+
   /* ---------------- 列表就地更新（改动单个视频后无需整页重拉） ---------------- */
   patchVideo: (key, patch) => {
     if (!key) return
@@ -620,6 +678,12 @@ export function videoKey(video) {
 export function javPatchKey(id) {
   const value = Number(id)
   return Number.isFinite(value) && value > 0 ? `jav:${value}` : ''
+}
+
+/** JAV 作品多选用的一元键：作品主键，非法值返回空串（调用方据此忽略）。 */
+export function javSelectionId(item) {
+  const value = Number(item?.id)
+  return Number.isFinite(value) && value > 0 ? value : ''
 }
 
 /** `javItemPatches` 的键：女优。 */

@@ -1,5 +1,7 @@
 import { useState } from 'react'
 
+import Icon from '@/components/Icons'
+import useLongPress from '@/hooks/useLongPress'
 import { useStore } from '@/store'
 import { formatReleaseDate } from '@/utils/format'
 import { idolDisplayName, javDisplayPrefs, javTagDisplayName } from '@/utils/javDisplay'
@@ -16,8 +18,18 @@ import { zh } from '@/utils/i18n'
  *
  * 显示哪些行由全局设置决定（不显示演员 / 标签 / 系列、优先中文名、简体标签），
  * 与 PC 端共用同一批配置键。
+ *
+ * 多选态由作品列表页下发：点选 = 勾选/取消，长按 = 进入多选（与视频卡一致）。
  */
-export default function JavWorkCard({ item, density = 'standard', onOpen }) {
+export default function JavWorkCard({
+  item,
+  density = 'standard',
+  onOpen,
+  selectionMode = false,
+  selected = false,
+  onToggle,
+  onLongPress,
+}) {
   const [failed, setFailed] = useState(false)
   const config = useStore((state) => state.config)
   const prefs = javDisplayPrefs(config)
@@ -32,18 +44,33 @@ export default function JavWorkCard({ item, density = 'standard', onOpen }) {
         .filter(Boolean)
   const tags = prefs.hideTags ? [] : item?.tags || []
 
+  // 多选态下长按等同于点选，避免误触（此时没有别的长按动作）。
+  const gesture = useLongPress({
+    onTap: () => (selectionMode ? onToggle?.(item) : onOpen?.(item)),
+    onLongPress: () => (selectionMode ? onToggle?.(item) : onLongPress?.(item)),
+  })
+
+  // click 只兜底键盘/读屏/程序化触发（detail === 0），避免同一次触摸被处理两次。
+  const activate = () => (selectionMode ? onToggle?.(item) : onOpen?.(item))
+
   return (
     <div
       role="button"
       tabIndex={0}
-      onClick={() => onOpen?.(item)}
+      aria-pressed={selectionMode ? selected : undefined}
+      {...gesture}
+      onClick={(event) => {
+        if (event.detail === 0) activate()
+      }}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()
-          onOpen?.(item)
+          activate()
         }
       }}
-      className="overflow-hidden rounded-card border border-[#e6e8ec] bg-white text-left shadow-[0_1px_2px_rgba(15,23,42,0.05)]"
+      className={`select-none overflow-hidden rounded-card border bg-white text-left shadow-[0_1px_2px_rgba(15,23,42,0.05)] ${
+        selected ? 'border-sky-400 ring-2 ring-sky-200' : 'border-[#e6e8ec]'
+      }`}
     >
       <div className="relative aspect-[800/538] w-full overflow-hidden bg-zinc-200">
         {!code || failed ? (
@@ -67,6 +94,18 @@ export default function JavWorkCard({ item, density = 'standard', onOpen }) {
         >
           {code}
         </span>
+        {/* 番号是 JAV 卡片的主标识，不能像视频卡那样被勾选圈顶掉，
+            所以多选态的勾选圈放在右上角（那里本来就是空的）。 */}
+        {selectionMode ? (
+          <span
+            className={`absolute right-1.5 top-1.5 z-10 grid h-5 w-5 place-items-center rounded-full border-2 border-white shadow ${
+              selected ? 'bg-sky-500' : 'bg-black/25'
+            }`}
+            aria-hidden="true"
+          >
+            {selected ? <Icon name="check" size={12} className="text-white" /> : null}
+          </span>
+        ) : null}
         {!compact && item?.favorite_rating > 0 ? (
           <span className="absolute bottom-1.5 right-1.5 rounded bg-black/60 px-1.5 py-[1px] text-[10px] font-bold text-white">
             ★ {Number(item.favorite_rating).toFixed(1)}

@@ -12,6 +12,7 @@ import JavIdolFilterSheet from '@/components/JavIdolFilterSheet'
 import JavIdolQuickChips from '@/components/JavIdolQuickChips'
 import JavListPage from '@/components/JavListPage'
 import JavQuickChips from '@/components/JavQuickChips'
+import { JavBatchFavoriteSheet, JavBatchTagSheet } from '@/components/JavSelectionSheets'
 import JavTagSheet from '@/components/JavTagSheet'
 import PlaybackHistoryPage from '@/components/PlaybackHistoryPage'
 import PlayerPage from '@/components/PlayerPage'
@@ -20,7 +21,12 @@ import RenamePage from '@/components/RenamePage'
 import ScrapeSettingsPage from '@/components/ScrapeSettingsPage'
 import ScreenshotsPage from '@/components/ScreenshotsPage'
 import { SearchBar, SearchHints } from '@/components/SearchPanel'
-import { SelectionActionBar, SelectionTopBar } from '@/components/SelectionBar'
+import {
+  JavSelectionActionBar,
+  JavSelectionTopBar,
+  SelectionActionBar,
+  SelectionTopBar,
+} from '@/components/SelectionBar'
 import MePage from '@/components/settings/MePage'
 import SettingsSubPage, { isSettingsPage } from '@/components/settings/registry'
 import TagEditorSheet from '@/components/TagEditorSheet'
@@ -40,6 +46,8 @@ export default function App() {
   const [javIdolFilterOpen, setJavIdolFilterOpen] = useState(false)
   const [javTagOpen, setJavTagOpen] = useState(false)
   const [javFavoriteOpen, setJavFavoriteOpen] = useState(false)
+  const [javBatchTagOpen, setJavBatchTagOpen] = useState(false)
+  const [javBatchFavoriteOpen, setJavBatchFavoriteOpen] = useState(false)
   const [tagTargets, setTagTargets] = useState(null)
   const [ready, setReady] = useState(false)
 
@@ -62,6 +70,8 @@ export default function App() {
   const player = useStore((state) => state.player)
   const selectionMode = useStore((state) => state.selectionMode)
   const selectedKeys = useStore((state) => state.selectedKeys)
+  const javSelectionMode = useStore((state) => state.javSelectionMode)
+  const javSelectedIds = useStore((state) => state.javSelectedIds)
   const pages = useStore((state) => state.pages)
 
   // 首次进入：先拿配置（分页大小 / 默认排序）与标签，再加载列表。
@@ -88,12 +98,17 @@ export default function App() {
 
   const topPage = pages[pages.length - 1] || null
   const showingSearchHints = searchOpen && !selectionMode && !searchInput
+  // JAV 作品多选只在「作品」子分类下成立：女优 / 片商 / 系列没有批量操作。
+  const javSelectionAlive = javSelectionMode && view === 'jav' && javTab === 'works'
+  const javSelectedIdList = Array.from(javSelectedIds)
 
   return (
     <div className="flex min-h-screen flex-col bg-[#eff1f4]">
       {/* 外壳：视频与 JAV 两个模式共用同一套顶栏，保证随时能互相切换 */}
       {selectionMode && view === 'video' ? (
         <SelectionTopBar />
+      ) : javSelectionAlive ? (
+        <JavSelectionTopBar />
       ) : searchOpen ? (
         <SearchBar onClose={() => setSearchOpen(false)} />
       ) : (
@@ -104,7 +119,7 @@ export default function App() {
         />
       )}
 
-      {!selectionMode && !searchOpen ? (
+      {!selectionMode && !javSelectionAlive && !searchOpen ? (
         view === 'jav' ? (
           javTab === 'works' ? (
             <JavQuickChips
@@ -184,6 +199,11 @@ export default function App() {
 
       {selectionMode && view === 'video' ? (
         <SelectionActionBar onOpenTags={(list) => setTagTargets(list)} />
+      ) : javSelectionAlive ? (
+        <JavSelectionActionBar
+          onOpenTags={() => setJavBatchTagOpen(true)}
+          onOpenFavorites={() => setJavBatchFavoriteOpen(true)}
+        />
       ) : null}
 
       <FilterSheet open={filterOpen} onClose={() => setFilterOpen(false)} />
@@ -192,6 +212,24 @@ export default function App() {
       <JavIdolFilterSheet open={javIdolFilterOpen} onClose={() => setJavIdolFilterOpen(false)} />
       <JavTagSheet open={javTagOpen} onClose={() => setJavTagOpen(false)} />
       <JavFavoriteSheet open={javFavoriteOpen} onClose={() => setJavFavoriteOpen(false)} />
+      <JavBatchTagSheet
+        open={javBatchTagOpen}
+        javIds={javSelectedIdList}
+        onClose={() => setJavBatchTagOpen(false)}
+        onApplied={() => {
+          setJavBatchTagOpen(false)
+          useStore.getState().exitJavSelection()
+        }}
+      />
+      <JavBatchFavoriteSheet
+        open={javBatchFavoriteOpen}
+        javIds={javSelectedIdList}
+        onClose={() => setJavBatchFavoriteOpen(false)}
+        onApplied={() => {
+          setJavBatchFavoriteOpen(false)
+          useStore.getState().exitJavSelection()
+        }}
+      />
       <JavDensitySheet />
       <ActionSheet />
 
@@ -212,8 +250,14 @@ export default function App() {
       <OverlayBack open={javIdolFilterOpen} onClose={() => setJavIdolFilterOpen(false)} />
       <OverlayBack open={javTagOpen} onClose={() => setJavTagOpen(false)} />
       <OverlayBack open={javFavoriteOpen} onClose={() => setJavFavoriteOpen(false)} />
+      <OverlayBack open={javBatchTagOpen} onClose={() => setJavBatchTagOpen(false)} />
+      <OverlayBack open={javBatchFavoriteOpen} onClose={() => setJavBatchFavoriteOpen(false)} />
       <OverlayBack open={Boolean(player)} onClose={() => useStore.getState().closePlayer()} />
       <OverlayBack open={selectionMode} onClose={() => useStore.getState().exitSelection()} />
+      <OverlayBack
+        open={javSelectionAlive}
+        onClose={() => useStore.getState().exitJavSelection()}
+      />
       <StackBack depth={pages.length} onPop={() => useStore.getState().popPage()} />
 
       {topPage?.type === 'me' ? <MePage onClose={() => useStore.getState().popPage()} /> : null}
