@@ -1700,3 +1700,17 @@ export async function acknowledgeUpdate() {
   if (!res.ok) throw await apiError(res)
   return parseJSONResponse(res)
 }
+
+/**
+ * 只把发布包取到服务器本机（落点与更新流程的下载一致），不做解压也不做替换。
+ * 返回 `{ name, path }`，path 是服务器上的绝对路径，供用户手动解压覆盖。
+ */
+export async function downloadUpdate(name) {
+  const res = await apiFetch('/update/download', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw await apiError(res)
+  return parseJSONResponse(res)
+}

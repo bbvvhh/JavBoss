@@ -579,6 +579,38 @@ func TestStageRejectsPackageWithDataDirectory(t *testing.T) {
 	assertMissing(t, filepath.Join(UpdateDir(dataDir), unpackedDirName))
 }
 
+// 远程发布包先下载到 data/update/staging/ 里，Stage 清理暂存时不能把这一层目录
+// 连同刚下载好的归档一起删掉，否则真机上表现为「校验失败：open update package:
+// ... no such file or directory」。本机目录形式的发布包不在暂存目录里，走的是另一条分支。
+func TestStageKeepsDownloadedArchiveUnderStaging(t *testing.T) {
+	dataDir, programDir, _ := setupDirs(t)
+	name := hostPackageStem() + ZipExt
+	archivePath := StageArchivePath(dataDir, name)
+	writeArchive(t, FormatZip, archivePath, hostArchiveFiles())
+
+	// 上一次留下的中间产物与旧下载，本次都应当被清掉。
+	staleArchive := StageArchivePath(dataDir, hostPackageStem()+"-old.zip")
+	writeFile(t, staleArchive, "stale download")
+	writeFile(t, filepath.Join(UpdateDir(dataDir), planFileName), "{}")
+	writeFile(t, filepath.Join(UpdateDir(dataDir), unpackedDirName, "old.txt"), "old")
+
+	pending, err := Stage(context.Background(), StageOptions{
+		DataDir: dataDir, ProgramDir: programDir, ArchivePath: archivePath, FileName: name,
+	})
+	if err != nil {
+		t.Fatalf("stage downloaded package: %v", err)
+	}
+	if pending.FileName != name || pending.FileCount == 0 {
+		t.Fatalf("pending = %#v", pending)
+	}
+	if _, err := os.Stat(archivePath); err != nil {
+		t.Fatalf("the downloaded archive was removed: %v", err)
+	}
+	assertMissing(t, staleArchive)
+	assertMissing(t, filepath.Join(UpdateDir(dataDir), planFileName))
+	assertMissing(t, filepath.Join(UpdateDir(dataDir), unpackedDirName, "old.txt"))
+}
+
 func TestStageAndApplyReplacesProgramFiles(t *testing.T) {
 	// Windows 上平台层不直接替换文件，而是把替换交给退出后运行的 helper（见 apply_windows.go），
 	// 这里只覆盖 Unix 的整条链路；helper 脚本本身由 apply_windows_test.go 覆盖。

@@ -6,6 +6,7 @@ import DirectoryPickerModal from '@/components/DirectoryPickerModal'
 import {
   acknowledgeUpdate,
   applyUpdate,
+  downloadUpdate,
   fetchDirectories,
   fetchStorageConnections,
   fetchUpdateOverview,
@@ -50,6 +51,7 @@ export default function UpdateSettingsPanel({ onToast, directoryPickerEnabled = 
   const [settingsError, setSettingsError] = useState('')
   const [settingsMessage, setSettingsMessage] = useState('')
   const [applyingName, setApplyingName] = useState('')
+  const [downloadingName, setDownloadingName] = useState('')
   const [acknowledging, setAcknowledging] = useState(false)
   const [actionError, setActionError] = useState('')
   const [actionMessage, setActionMessage] = useState('')
@@ -130,7 +132,7 @@ export default function UpdateSettingsPanel({ onToast, directoryPickerEnabled = 
   const platformText =
     describeUpdatePlatform(overview?.platform) || String(overview?.platform || '')
   const programDir = String(overview?.program_dir || '')
-  const working = applyingName !== ''
+  const working = applyingName !== '' || downloadingName !== ''
   const candidates = backupLocationCandidates(directories, connections)
   const currentLocationText =
     currentConnectionId > 0
@@ -234,6 +236,27 @@ export default function UpdateSettingsPanel({ onToast, directoryPickerEnabled = 
   const closeConfirm = () => {
     if (applyingName !== '') return
     setConfirmTarget(null)
+  }
+
+  // 只把发布包取到服务器本机，方便更新失败时手动解压覆盖。
+  const handleDownload = async (name) => {
+    setActionError('')
+    setActionMessage('')
+    setDownloadingName(name)
+    try {
+      const data = await downloadUpdate(name)
+      setActionMessage(
+        zh(
+          `发布包已保存到服务器：${data.path}\n可以手动解压这个文件，把里面的文件覆盖到程序目录（不要动 data 目录与 config.toml）。`,
+          `Package saved on the server: ${data.path}\nUnpack it and copy the files into the program directory (leave the data directory and config.toml alone).`
+        )
+      )
+      onToast?.(zh('发布包已下载到服务器', 'Package downloaded on the server'))
+    } catch (err) {
+      setActionError(getErrorMessage(err))
+    } finally {
+      setDownloadingName('')
+    }
   }
 
   const handleAcknowledge = async () => {
@@ -519,7 +542,7 @@ export default function UpdateSettingsPanel({ onToast, directoryPickerEnabled = 
       ) : null}
 
       {actionMessage ? (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+        <div className="whitespace-pre-line break-all rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           {actionMessage}
         </div>
       ) : null}
@@ -615,6 +638,20 @@ export default function UpdateSettingsPanel({ onToast, directoryPickerEnabled = 
                       ) : null}
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleDownload(item.name)}
+                        disabled={working || savingSettings}
+                        title={zh(
+                          '只下载到服务器，不覆盖程序目录',
+                          'Download to the server without replacing anything'
+                        )}
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                      >
+                        {downloadingName === item.name
+                          ? zh('下载中…', 'Downloading...')
+                          : zh('下载', 'Download')}
+                      </button>
                       <button
                         type="button"
                         onClick={() => handleApply(item.name)}

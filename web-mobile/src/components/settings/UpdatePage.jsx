@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   acknowledgeUpdate,
   applyUpdate,
+  downloadUpdate,
   fetchDirectories,
   fetchStorageConnections,
   getUpdateOverview,
@@ -53,11 +54,13 @@ export default function UpdatePage({ onClose }) {
   const [pathDraft, setPathDraft] = useState('')
   const [locationKind, setLocationKind] = useState(LOCATION_LOCAL)
   const [connectionDraft, setConnectionDraft] = useState(null)
-  // busy 是「正在进行的动作」的键：save / ack / apply:<name>。
+  // busy 是「正在进行的动作」的键：save / ack / apply:<name> / download:<name>。
   const [busy, setBusy] = useState('')
   const [actionError, setActionError] = useState('')
   const [applyTarget, setApplyTarget] = useState(null)
   const [pickerOpen, setPickerOpen] = useState(false)
+  // 手动下载到服务器后的绝对路径，展示在提示条里方便用户去解压覆盖。
+  const [downloadedPath, setDownloadedPath] = useState('')
 
   // 只在服务端保存的位置真的变了的时候回填表单，避免每次动作回来都覆盖用户正在输入的内容。
   const syncedPath = useRef(null)
@@ -100,6 +103,7 @@ export default function UpdatePage({ onClose }) {
   const runAction = async (key, task, message) => {
     setBusy(key)
     setActionError('')
+    setDownloadedPath('')
     try {
       const next = await task()
       // 所有写接口都返回同一份 overview，直接替换即可，不必再拉一次。
@@ -131,6 +135,24 @@ export default function UpdatePage({ onClose }) {
 
   const dismissNotice = () =>
     runAction('ack', () => acknowledgeUpdate(), zh('已清除提示', 'Notice dismissed'))
+
+  // 只把发布包取到服务器本机，方便更新失败时手动解压覆盖。
+  // 这里刻意不复用 runAction：接口返回的是 {name, path}，不是 overview，不能整个塞进 setData。
+  const downloadPackage = async (name) => {
+    setBusy(`download:${name}`)
+    setActionError('')
+    setDownloadedPath('')
+    try {
+      const result = await downloadUpdate(name)
+      const path = String(result?.path || '')
+      setDownloadedPath(path)
+      showToast(zh('发布包已下载到服务器', 'Package downloaded on the server'))
+    } catch (err) {
+      setActionError(getErrorMessage(err))
+    } finally {
+      setBusy('')
+    }
+  }
 
   const confirmApply = () =>
     runAction(
@@ -197,6 +219,31 @@ export default function UpdatePage({ onClose }) {
               )}
             </p>
           ) : null}
+        </Notice>
+      ) : null}
+
+      {downloadedPath ? (
+        <Notice
+          tone="ok"
+          icon="download"
+          title={zh('发布包已下载到服务器', 'Package downloaded on the server')}
+          detail={downloadedPath}
+          action={
+            <button
+              type="button"
+              onClick={() => setDownloadedPath('')}
+              className={buttonClass('secondary', 'h-8 px-3 text-[12.5px]')}
+            >
+              {zh('知道了', 'Got it')}
+            </button>
+          }
+        >
+          <p className="mt-1.5 pl-[22px] text-[11.5px] leading-relaxed opacity-80">
+            {zh(
+              '更新失败时可以手动解压这个文件，把里面的文件覆盖到程序目录（data 目录与 config.toml 不要动）。',
+              'If updating fails, unpack this file yourself and copy the contents into the program directory (leave the data directory and config.toml alone).'
+            )}
+          </p>
         </Notice>
       ) : null}
 
@@ -455,19 +502,35 @@ export default function UpdatePage({ onClose }) {
                   </p>
                 ) : null}
 
-                <button
-                  type="button"
-                  disabled={Boolean(busy) || !item.compatible}
-                  onClick={() => {
-                    setActionError('')
-                    setApplyTarget(pkg)
-                  }}
-                  className={buttonClass('primary', 'mt-2.5 h-9 w-full')}
-                >
-                  {busy === `apply:${item.name}`
-                    ? zh('正在更新…', 'Updating…')
-                    : zh('更新到该版本', 'Update to this build')}
-                </button>
+                <div className="mt-2.5 flex gap-2">
+                  <button
+                    type="button"
+                    disabled={Boolean(busy)}
+                    onClick={() => downloadPackage(item.name)}
+                    title={zh(
+                      '只下载到服务器，不覆盖程序目录',
+                      'Only download to the server; nothing is replaced'
+                    )}
+                    className={buttonClass('secondary', 'h-9 min-w-0 flex-1')}
+                  >
+                    {busy === `download:${item.name}`
+                      ? zh('下载中…', 'Downloading…')
+                      : zh('下载', 'Download')}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={Boolean(busy) || !item.compatible}
+                    onClick={() => {
+                      setActionError('')
+                      setApplyTarget(pkg)
+                    }}
+                    className={buttonClass('primary', 'h-9 min-w-0 flex-1')}
+                  >
+                    {busy === `apply:${item.name}`
+                      ? zh('正在更新…', 'Updating…')
+                      : zh('更新到该版本', 'Update to this build')}
+                  </button>
+                </div>
               </div>
             )
           })}

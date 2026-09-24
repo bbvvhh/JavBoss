@@ -378,14 +378,36 @@ export const useStore = create((set, get) => ({
   /**
    * 从女优 / 片商 / 系列跳转到「对应的影片」。
    * 行为刻意做成可预测的：切到作品 tab、用传入的条件**替换**整套筛选、退出随机、
-   * 关掉所有二级页并回到顶部。用户随后可以在「筛选」抽屉里看到并清掉这些条件。
+   * 露出作品列表并回到顶部。用户随后可以在「筛选」抽屉里看到并清掉这些条件。
+   *
+   * 从二级页（作品 / 女优详情）跳进来时，不能直接把页面栈清空：清空会让
+   * `useStackBack` 去收缩浏览器历史，正好把「返回」该回去的那条记录消耗掉 ——
+   * 手势返回于是越过详情页直接退出到浏览器上一页。这里改成在栈顶压一个
+   * `jav-works` 占位页（不渲染任何内容，列表露在它下面），把跳转前的列表状态
+   * 存在它身上，返回时由 popPage 弹掉并还原，详情页就回来了。
    */
   jumpToJavWorks: (patch = {}) => {
+    const state = get()
+    const pages = state.pages.length
+      ? [
+          ...state.pages,
+          {
+            type: 'jav-works',
+            payload: {
+              restore: {
+                javTab: state.javTab,
+                javFilters: state.javFilters,
+                javRandomSeed: state.javRandomSeed,
+              },
+            },
+          },
+        ]
+      : state.pages
     set({
       javTab: 'works',
       javFilters: { ...EMPTY_JAV_FILTERS, ...patch },
       javRandomSeed: null,
-      pages: [],
+      pages,
     })
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'auto' })
   },
@@ -513,7 +535,22 @@ export const useStore = create((set, get) => ({
   /* ---------------- 二级页导航栈（P1 起步，P2 的设置页复用） ---------------- */
   pages: [],
   pushPage: (type, payload = null) => set({ pages: [...get().pages, { type, payload }] }),
-  popPage: () => set({ pages: get().pages.slice(0, -1) }),
+
+  /**
+   * 出栈。`jav-works` 是「筛选结果」占位页（见 jumpToJavWorks）：它本身不渲染
+   * 任何东西，返回时除了弹栈还要还原跳转前的列表状态，否则详情页回来时底下的
+   * 筛选条件会停留在女优条件上。
+   */
+  popPage: () => {
+    const { pages } = get()
+    const top = pages[pages.length - 1]
+    const rest = pages.slice(0, -1)
+    if (top?.type === 'jav-works' && top.payload?.restore) {
+      set({ ...top.payload.restore, pages: rest })
+      return
+    }
+    set({ pages: rest })
+  },
   closeAllPages: () => set({ pages: [] }),
 
   /* ---------------- 设置区（P2） ---------------- */

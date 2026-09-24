@@ -121,9 +121,17 @@ func Stage(ctx context.Context, opts StageOptions) (Pending, error) {
 	if err := VerifySidecar(opts.ArchivePath); err != nil {
 		return Pending{}, err
 	}
-	// 清掉上一次的中间产物；本次要用的归档可能就下载在 staging/ 下，不能删。
-	if err := cleanStaging(stageDir, filepath.Base(opts.ArchivePath), filepath.Base(opts.ArchivePath)+Sha256Ext); err != nil {
+	// 清掉上一次的中间产物。远程包就下载在 staging/ 子目录里，这一层目录
+	// 连同本次要用的归档本身都不能删，所以分两层清：顶层留下放归档的目录，
+	// 该目录里再留下本次的归档与边车。
+	if err := cleanStaging(stageDir, archiveTopLevel(stageDir, opts.ArchivePath)); err != nil {
 		return Pending{}, err
+	}
+	if container := filepath.Dir(opts.ArchivePath); container != stageDir {
+		keep := []string{filepath.Base(opts.ArchivePath), filepath.Base(opts.ArchivePath) + Sha256Ext}
+		if err := cleanStaging(container, keep...); err != nil {
+			return Pending{}, err
+		}
 	}
 
 	unpackedDir := filepath.Join(stageDir, unpackedDirName)
@@ -657,6 +665,19 @@ func writeJSON(path string, value any) error {
 		return fmt.Errorf("write %s: %w", filepath.Base(path), err)
 	}
 	return nil
+}
+
+// archiveTopLevel 返回归档在 stageDir 下所属的顶层条目名，归档不在 stageDir 里时返回空串。
+// 远程发布包下载在 staging/ 子目录里，清理暂存时必须保留这一层，否则会连归档一起删掉。
+func archiveTopLevel(stageDir, archivePath string) string {
+	rel := relativeInside(stageDir, archivePath)
+	if rel == "" {
+		return ""
+	}
+	if i := strings.Index(rel, "/"); i >= 0 {
+		return rel[:i]
+	}
+	return rel
 }
 
 // relativeInside 返回 target 相对 base 的斜杠路径；target 不在 base 内时返回空串。

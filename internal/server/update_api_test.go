@@ -2,6 +2,7 @@ package server
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"net/http"
@@ -256,6 +257,105 @@ func TestUpdateAPIWithWebDAVFolder(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(update.UpdateDir(fixture.dataDir), "staging", name)); err == nil {
 		t.Fatal("the downloaded package should have been cleaned up")
 	}
+}
+
+// assertSameContent 断言两个文件的内容完全一致。
+func assertSameContent(t *testing.T, want, got string) {
+	t.Helper()
+	expected, err := os.ReadFile(want)
+	if err != nil {
+		t.Fatalf("read %s: %v", want, err)
+	}
+	actual, err := os.ReadFile(got)
+	if err != nil {
+		t.Fatalf("read %s: %v", got, err)
+	}
+	if !bytes.Equal(expected, actual) {
+		t.Fatalf("%s does not match %s", got, want)
+	}
+}
+
+// assertDirEmpty 断言目录里空无一物，用来证明「下载」没有碰程序目录。
+func assertDirEmpty(t *testing.T, dir string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("%s should be untouched, found %d entries", dir, len(entries))
+	}
+}
+
+// TestUpdateDownloadWithLocalFolder 覆盖本机目录来源的「下载」兜底按钮：
+// 包被复制到更新流程统一使用的暂存路径，程序目录一字节都不动。
+func TestUpdateDownloadWithLocalFolder(t *testing.T) {
+	fixture := newUpdateFixture(t)
+	packageDir := t.TempDir()
+	name := currentPlatformPackageName()
+	writeUpdatePackage(t, packageDir, name, map[string]string{"web/dist/index.html": "<html>"})
+
+	if recorder := fixture.do(t, http.MethodPut, "/update/settings",
+		`{"update_path":`+strconv.Quote(packageDir)+`}`); recorder.Code != http.StatusOK {
+		t.Fatalf("save update settings = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	// 非法文件名不能触发下载
+	if recorder := fixture.do(t, http.MethodPost, "/update/download", `{"name":"../evil.zip"}`); recorder.Code != http.StatusBadRequest {
+		t.Fatalf("download with an invalid name = %d", recorder.Code)
+	}
+	// 目录里没有的包要报「不存在」，不是「位置不可用」
+	absent := "javboss-v9.9.9-" + update.CurrentPlatform() + "-absent" + update.ZipExt
+	if recorder := fixture.do(t, http.MethodPost, "/update/download", `{"name":`+strconv.Quote(absent)+`}`); recorder.Code != http.StatusNotFound {
+		t.Fatalf("download a missing package = %d", recorder.Code)
+	}
+
+	recorder := fixture.do(t, http.MethodPost, "/update/download", `{"name":`+strconv.Quote(name)+`}`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("download = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	var result updateDownload
+	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode download result: %v", err)
+	}
+	want := update.StageArchivePath(fixture.dataDir, name)
+	if result.Name != name || result.Path != want {
+		t.Fatalf("download result = %#v, want path %q", result, want)
+	}
+	assertSameContent(t, filepath.Join(packageDir, name), want)
+	assertDirEmpty(t, fixture.programDir)
+}
+
+// TestUpdateDownloadWithWebDAVFolder 覆盖远程来源的「下载」：
+// 包落在 staging/ 下（与 apply 的落点一致），只读挂载也能用，程序目录不被触碰。
+func TestUpdateDownloadWithWebDAVFolder(t *testing.T) {
+	fixture := newUpdateFixture(t)
+	dav := newWebDAVConnection(t, true)
+	updatesDir := filepath.Join(dav.root, "updates")
+	if err := os.MkdirAll(updatesDir, 0o755); err != nil {
+		t.Fatalf("create updates collection: %v", err)
+	}
+	name := currentPlatformPackageName()
+	writeUpdatePackage(t, updatesDir, name, nil)
+
+	if recorder := fixture.do(t, http.MethodPut, "/update/settings",
+		`{"update_path":"/updates","connection_id":`+strconv.FormatInt(dav.connectionID, 10)+`}`); recorder.Code != http.StatusOK {
+		t.Fatalf("save update settings = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	recorder := fixture.do(t, http.MethodPost, "/update/download", `{"name":`+strconv.Quote(name)+`}`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("download = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	var result updateDownload
+	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode download result: %v", err)
+	}
+	want := update.StageArchivePath(fixture.dataDir, name)
+	if result.Path != want {
+		t.Fatalf("download result path = %q, want %q", result.Path, want)
+	}
+	assertSameContent(t, filepath.Join(updatesDir, name), want)
+	assertDirEmpty(t, fixture.programDir)
 }
 
 func TestUpdateSettingsRejectsInvalidPayload(t *testing.T) {

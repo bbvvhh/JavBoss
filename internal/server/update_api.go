@@ -166,19 +166,13 @@ func applyUpdate(c *gin.Context) {
 	archivePath := filepath.Join(settings.UpdatePath, name)
 	if settings.ConnectionID != nil {
 		// 远程包先下载到暂存目录，校验边车尽力取回（发布脚本不一定产出它）。
-		archivePath = update.StageArchivePath(dataDir, name)
-		if err := source.Fetch(c.Request.Context(), name, archivePath); err != nil {
+		archivePath, err = fetchPackageToStaging(c.Request.Context(), source, dataDir, name)
+		if err != nil {
 			logging.Error("download update package error: %v", err)
 			if errors.Is(err, storage.ErrNotFound) {
 				respondLocalizedError(c, http.StatusNotFound, "更新包不存在", "Update package not found")
 				return
 			}
-			zhMessage, enMessage := updateSourceErrorMessage(err)
-			respondLocalizedError(c, http.StatusBadRequest, zhMessage, enMessage)
-			return
-		}
-		if _, err := source.FetchSidecar(c.Request.Context(), name, archivePath+update.Sha256Ext); err != nil {
-			logging.Error("download update checksum error: %v", err)
 			zhMessage, enMessage := updateSourceErrorMessage(err)
 			respondLocalizedError(c, http.StatusBadRequest, zhMessage, enMessage)
 			return
@@ -220,6 +214,102 @@ func applyUpdate(c *gin.Context) {
 		c.Writer.Flush()
 		update.ExitForUpdate()
 	}
+}
+
+// updateDownload 是「把发布包下载到服务器本机」的结果。
+type updateDownload struct {
+	Name string `json:"name"`
+	// Path 是发布包在服务器上的绝对路径（与更新流程的下载落点相同）。
+	Path string `json:"path"`
+}
+
+// downloadUpdate 只把发布包取到本机，不做解压也不做替换。
+//
+// 存在的意义是兜底：更新失败时用户可以直接在服务器上解压这个文件、手动覆盖程序目录。
+// 所以这里不校验平台（包可能是给另一台机器准备的），也绝不碰程序目录。
+func downloadUpdate(c *gin.Context) {
+	var request struct {
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		respondLocalizedError(c, http.StatusBadRequest, "下载请求格式不正确", "Invalid download request")
+		return
+	}
+	name := strings.TrimSpace(request.Name)
+	if !update.ValidPackageName(name) {
+		respondLocalizedError(c, http.StatusBadRequest, "更新包不存在", "Update package not found")
+		return
+	}
+	settings, err := db.GetUpdateSettings(c.Request.Context())
+	if err != nil {
+		respondLocalizedError(c, http.StatusInternalServerError, "读取更新设置失败", "Failed to load update settings")
+		return
+	}
+	if updatePathMissing(settings) {
+		respondLocalizedError(c, http.StatusBadRequest, "请先设置更新包所在目录", "Set the update folder first")
+		return
+	}
+	source, err := resolveUpdateSource(c.Request.Context(), settings)
+	if err != nil {
+		logging.Error("resolve update source error: %v", err)
+		zhMessage, enMessage := updateSourceErrorMessage(err)
+		respondLocalizedError(c, http.StatusBadRequest, zhMessage, enMessage)
+		return
+	}
+	dataDir, _, err := updateTarget()
+	if err != nil {
+		respondLocalizedError(c, http.StatusInternalServerError, "读取数据目录失败", "Failed to resolve the data directory")
+		return
+	}
+	// 本机目录形式的包先确认存在，好给出「不存在」而不是「位置不可用」。
+	if settings.ConnectionID == nil {
+		info, statErr := os.Stat(filepath.Join(settings.UpdatePath, name))
+		if statErr != nil || !info.Mode().IsRegular() {
+			respondLocalizedError(c, http.StatusNotFound, "更新包不存在", "Update package not found")
+			return
+		}
+	}
+
+	// 与更新串行：两者都往同一个暂存目录里写文件，同时跑会互相覆盖。
+	release, ok := acquireUpdateOp()
+	if !ok {
+		respondLocalizedError(c, http.StatusConflict, "已有更新任务正在执行，请稍后再试", "Another update is already running")
+		return
+	}
+	defer release()
+	// 下载可能超过服务器默认的 30s 写超时，这里单独放宽。
+	_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Time{})
+
+	path, err := fetchPackageToStaging(c.Request.Context(), source, dataDir, name)
+	if err != nil {
+		logging.Error("download update package error: %v", err)
+		if errors.Is(err, storage.ErrNotFound) {
+			respondLocalizedError(c, http.StatusNotFound, "更新包不存在", "Update package not found")
+			return
+		}
+		zhMessage, enMessage := updateSourceErrorMessage(err)
+		respondLocalizedError(c, http.StatusBadRequest, zhMessage, enMessage)
+		return
+	}
+	c.JSON(http.StatusOK, updateDownload{Name: name, Path: path})
+}
+
+// fetchPackageToStaging 把发布包取到更新流程统一使用的暂存路径下，返回该绝对路径。
+//
+// 远程包由这里下载，本机目录形式的包也会被复制过来——「下载」按钮的落点因此
+// 与更新流程完全一致。校验边车尽力取回：发布脚本不一定产出它。
+func fetchPackageToStaging(ctx context.Context, source update.Source, dataDir, name string) (string, error) {
+	path := update.StageArchivePath(dataDir, name)
+	if err := source.Fetch(ctx, name, path); err != nil {
+		return "", err
+	}
+	// 上一次留下的同名边车可能已经不对应远端的包了（同一个版本号重新打包过），
+	// 先删掉再取回，避免拿旧摘要去校验新包。
+	_ = os.Remove(path + update.Sha256Ext)
+	if _, err := source.FetchSidecar(ctx, name, path+update.Sha256Ext); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // acknowledgeUpdate 清除「最近一次更新」的提示。
