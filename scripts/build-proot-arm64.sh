@@ -253,15 +253,20 @@ setup_toolchain() {
 FFMPEG_SHA256="6e7b1d7d1aa8c35e3fedd78a140aa0968717aeb7386ecfb0ee00773d9f0a4503"
 FFPROBE_SHA256="fd2aca1456f0261cabef4514b6d97a70fa342003347f51b39c473dd364328089"
 
+# 下载到 $CACHE_DIR/downloads 缓存，再复制进产物目录。
+# 产物目录每次构建都会被 rm -rf，直接下载到那里会导致每次都重新下载。
 fetch_ff_binary() {
   local asset="$1" dest="$2" sha="$3" url mirror
   local candidates=()
+  local cache_file="$CACHE_DIR/downloads/$asset"
   url="https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/${FFMPEG_RELEASE}/${asset}"
   for mirror in $GH_MIRRORS; do
     candidates+=("${mirror}${url}")
   done
   candidates+=("$url")
-  download "$dest" "$sha" "${candidates[@]}"
+  download "$cache_file" "$sha" "${candidates[@]}"
+  chmod 0755 "$cache_file"
+  cp -f "$cache_file" "$dest"
   chmod 0755 "$dest"
 }
 
