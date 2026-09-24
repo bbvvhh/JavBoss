@@ -38,8 +38,10 @@ import useInfiniteScroll from '@/hooks/useInfiniteScroll'
 import useOverlayBack from '@/hooks/useOverlayBack'
 import useScrollRestoration from '@/hooks/useScrollRestoration'
 import useStackBack from '@/hooks/useStackBack'
+import useUrlStateSync from '@/hooks/useUrlStateSync'
 import { useStore } from '@/store'
 import { zh } from '@/utils/i18n'
+import { applyUrlState, parseUrlState } from '@/utils/urlState'
 
 export default function App() {
   const [searchOpen, setSearchOpen] = useState(false)
@@ -79,11 +81,14 @@ export default function App() {
   const javSelectedIds = useStore((state) => state.javSelectedIds)
   const pages = useStore((state) => state.pages)
 
-  // 首次进入：先拿配置（分页大小 / 默认排序）与标签，再加载列表。
+  // 首次进入：先拿配置（分页大小 / 默认排序）与标签，再按地址栏复原筛选条件，
+  // 最后才加载列表 —— 顺序反了会先按默认条件白拉一次请求。
   useEffect(() => {
     let cancelled = false
     Promise.all([useStore.getState().loadConfig(), useStore.getState().loadTags()]).then(() => {
-      if (!cancelled) setReady(true)
+      if (cancelled) return
+      applyUrlState(useStore, parseUrlState(window.location.search))
+      setReady(true)
     })
     return () => {
       cancelled = true
@@ -111,6 +116,9 @@ export default function App() {
       return true
     },
   })
+
+  // 配置与地址栏都就位之后，再把之后的每次筛选变化写回地址栏。
+  useUrlStateSync(ready)
 
   const topPage = pages[pages.length - 1] || null
   const showingSearchHints = searchOpen && !selectionMode && !searchInput
