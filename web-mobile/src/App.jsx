@@ -36,6 +36,7 @@ import TopBar from '@/components/TopBar'
 import VideoGrid from '@/components/VideoGrid'
 import useInfiniteScroll from '@/hooks/useInfiniteScroll'
 import useOverlayBack from '@/hooks/useOverlayBack'
+import useScrollRestoration from '@/hooks/useScrollRestoration'
 import useStackBack from '@/hooks/useStackBack'
 import { useStore } from '@/store'
 import { zh } from '@/utils/i18n'
@@ -98,6 +99,17 @@ export default function App() {
   const sentinelRef = useInfiniteScroll({
     onLoadMore: () => useStore.getState().loadMoreVideos(),
     enabled: hasNext && !loading && !loadingMore && !randomSeed,
+  })
+
+  // 切到 JAV 模式再切回来（或刷新页面）时，视频列表还停在原来那一屏。
+  useScrollRestoration('video', {
+    enabled: view === 'video',
+    requestMore: () => {
+      const state = useStore.getState()
+      if (!state.hasNext || state.loading || state.loadingMore || state.randomSeed) return false
+      state.loadMoreVideos()
+      return true
+    },
   })
 
   const topPage = pages[pages.length - 1] || null

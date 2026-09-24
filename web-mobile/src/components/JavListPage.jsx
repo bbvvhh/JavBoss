@@ -6,6 +6,7 @@ import IdolCover from '@/components/IdolCover'
 import JavWorkCard from '@/components/JavWorkCard'
 import { JAV_DENSITY_COLUMNS, idolProfileRangeParams, normalizeIdolSort } from '@/constants/jav'
 import useHideOnScroll from '@/hooks/useHideOnScroll'
+import useScrollRestoration from '@/hooks/useScrollRestoration'
 import { idolPatchKey, javPatchKey, useStore } from '@/store'
 import { configString } from '@/utils/config'
 import { formatCount } from '@/utils/format'
@@ -202,6 +203,15 @@ export default function JavListPage() {
   }, [tab, items, setJavSelectable])
 
   const hasNext = items.length < total
+
+  // 每个子分类各记一份滚动位置：切回来还停在原处，刷新也能复原。
+  useScrollRestoration(`jav:${tab}`, {
+    requestMore: () => {
+      if (!hasNext || loading || loadingMore || randomSeed) return false
+      load(items.length)
+      return true
+    },
+  })
 
   useEffect(() => {
     const node = sentinelRef.current
