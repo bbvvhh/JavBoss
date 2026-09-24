@@ -7,6 +7,7 @@ import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined'
 import ExtensionTokenSettings from '@/components/ExtensionTokenSettings'
 import DirectoryManager from '@/components/DirectoryManager'
 import BackupSettingsPanel from '@/components/BackupSettingsPanel'
+import UpdateSettingsPanel from '@/components/UpdateSettingsPanel'
 import AppModal from '@/components/AppModal'
 import PlayerSettingsModal from '@/components/PlayerSettingsModal'
 import SubtitleSettingsPanel from '@/components/SubtitleSettingsPanel'
@@ -63,6 +64,14 @@ const SETTINGS_SECTIONS = [
     summary: {
       zh: '备份 data 目录并按需恢复',
       en: 'Back up the data folder and restore it',
+    },
+  },
+  {
+    id: 'update',
+    title: { zh: '程序更新', en: 'Program Update' },
+    summary: {
+      zh: '用发布包覆盖程序文件',
+      en: 'Replace program files with a release package',
     },
   },
   {
@@ -1579,6 +1588,12 @@ export default function GlobalSettingsModal({
           {currentSection === 'subtitles' && <SubtitleSettingsPanel onToast={onToast} />}
           {currentSection === 'backup' && (
             <BackupSettingsPanel
+              onToast={onToast}
+              directoryPickerEnabled={directoryPickerEnabled}
+            />
+          )}
+          {currentSection === 'update' && (
+            <UpdateSettingsPanel
               onToast={onToast}
               directoryPickerEnabled={directoryPickerEnabled}
             />

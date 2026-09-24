@@ -1662,3 +1662,41 @@ export async function deleteBackupFile(name) {
   if (!res.ok) throw await apiError(res)
   return parseJSONResponse(res)
 }
+
+/* ---------------- 程序自更新 ---------------- */
+
+export async function fetchUpdateOverview() {
+  const res = await apiFetch('/update', { cache: 'no-store' })
+  if (!res.ok) throw await apiError(res)
+  return parseJSONResponse(res)
+}
+
+export async function updateUpdateSettings(payload) {
+  const res = await apiFetch('/update/settings', {
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify(payload || {}),
+  })
+  if (!res.ok) throw await apiError(res)
+  return parseJSONResponse(res)
+}
+
+export async function applyUpdate(name) {
+  const res = await apiFetch('/update/apply', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw await apiError(res)
+  return parseJSONResponse(res)
+}
+
+export async function acknowledgeUpdate() {
+  const res = await apiFetch('/update/acknowledge', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({}),
+  })
+  if (!res.ok) throw await apiError(res)
+  return parseJSONResponse(res)
+}

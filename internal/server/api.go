@@ -23,6 +23,12 @@ func RegisterRoutes(router gin.IRoutes) {
 	router.POST("/backup/restore", restoreBackup)
 	router.POST("/backup/acknowledge", acknowledgeBackupRestore)
 	router.DELETE("/backup/files/:name", deleteBackupFile)
+	// 程序自更新：从指定位置读发布包、校验、解压后覆盖程序目录（data/ 与 config.toml 不动）。
+	// GET/PUT/POST 都返回同一份更新模块状态。
+	router.GET("/update", getUpdate)
+	router.PUT("/update/settings", updateUpdateSettings)
+	router.POST("/update/apply", applyUpdate)
+	router.POST("/update/acknowledge", acknowledgeUpdate)
 	router.GET("/tools", getTools)
 	router.POST("/tools/ffmpeg/download", downloadFFmpeg)
 	router.GET("/videos", listVideos)

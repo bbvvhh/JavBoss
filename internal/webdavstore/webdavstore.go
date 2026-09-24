@@ -34,10 +34,21 @@ type Store struct {
 	base   *url.URL
 	client *http.Client
 	reader *storage.WebDAV
+	// validName 决定哪些文件名属于本 Store。备份与程序更新包共用同一套
+	// WebDAV 读写实现，但两边的文件名规则不同，所以由构造函数注入。
+	validName func(string) bool
 }
 
 // New 构建写入 conn 上 remotePath 目录的备份存储。
 func New(conn storage.Connection, remotePath string) (*Store, error) {
+	return NewWithNameFilter(conn, remotePath, backup.ValidFileName)
+}
+
+// NewWithNameFilter 与 New 相同，但可以自定义文件名规则（比如程序更新包）。
+func NewWithNameFilter(conn storage.Connection, remotePath string, validName func(string) bool) (*Store, error) {
+	if validName == nil {
+		validName = backup.ValidFileName
+	}
 	reader, err := storage.NewWebDAV(conn, remotePath)
 	if err != nil {
 		return nil, err
@@ -62,16 +73,24 @@ func New(conn storage.Connection, remotePath string) (*Store, error) {
 		transport.DisableCompression = true
 	})
 	return &Store{
-		conn:   conn,
-		root:   storage.NormalizeRemotePath(remotePath),
-		base:   base,
-		client: client,
-		reader: reader,
+		conn:      conn,
+		root:      storage.NormalizeRemotePath(remotePath),
+		base:      base,
+		client:    client,
+		reader:    reader,
+		validName: validName,
 	}, nil
 }
 
 // Root 返回备份所在的远程目录（已规范化）。
 func (s *Store) Root() string { return s.root }
+
+// ExistsRoot 只确认这个集合本身存在，不写任何东西。
+// 程序更新包位置多数是只读挂载，不能用 Probe 的写入测试来探测。
+func (s *Store) ExistsRoot(ctx context.Context) error {
+	_, err := s.reader.StatRoot(ctx)
+	return err
+}
 
 func (s *Store) List(ctx context.Context) ([]backup.File, error) {
 	entries, err := s.reader.List(ctx, "")
@@ -83,7 +102,7 @@ func (s *Store) List(ctx context.Context) ([]backup.File, error) {
 	}
 	files := make([]backup.File, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir || !backup.ValidFileName(entry.Name) {
+		if entry.IsDir || !s.validName(entry.Name) {
 			continue
 		}
 		files = append(files, backup.File{
@@ -95,7 +114,7 @@ func (s *Store) List(ctx context.Context) ([]backup.File, error) {
 }
 
 func (s *Store) Exists(ctx context.Context, name string) (bool, error) {
-	if !backup.ValidFileName(name) {
+	if !s.validName(name) {
 		return false, nil
 	}
 	if _, err := s.reader.Stat(ctx, name); err != nil {
@@ -108,8 +127,8 @@ func (s *Store) Exists(ctx context.Context, name string) (bool, error) {
 }
 
 func (s *Store) Put(ctx context.Context, name string, write func(io.Writer) error) (backup.File, error) {
-	if !backup.ValidFileName(name) {
-		return backup.File{}, fmt.Errorf("invalid backup file name %q", name)
+	if !s.validName(name) {
+		return backup.File{}, fmt.Errorf("invalid file name %q", name)
 	}
 	// WebDAV 服务器普遍不接受长度未知的 PUT（分块传输），所以先落到本机临时文件，
 	// 知道长度后再整块上传。
@@ -144,8 +163,8 @@ func (s *Store) Put(ctx context.Context, name string, write func(io.Writer) erro
 }
 
 func (s *Store) Fetch(ctx context.Context, name, destPath string) error {
-	if !backup.ValidFileName(name) {
-		return fmt.Errorf("invalid backup file name %q", name)
+	if !s.validName(name) {
+		return fmt.Errorf("invalid file name %q", name)
 	}
 	request, err := s.newRequest(ctx, http.MethodGet, name, nil)
 	if err != nil {
@@ -178,8 +197,8 @@ func (s *Store) Fetch(ctx context.Context, name, destPath string) error {
 }
 
 func (s *Store) Delete(ctx context.Context, name string) error {
-	if !backup.ValidFileName(name) {
-		return fmt.Errorf("invalid backup file name %q", name)
+	if !s.validName(name) {
+		return fmt.Errorf("invalid file name %q", name)
 	}
 	response, err := s.send(ctx, http.MethodDelete, name, nil)
 	if err != nil {

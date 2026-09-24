@@ -311,6 +311,7 @@ func isAPIPath(path string) bool {
 		"/sync",
 		"/tags",
 		"/tools",
+		"/update",
 		"/videos",
 	} {
 		if path == prefix || strings.HasPrefix(path, prefix+"/") {

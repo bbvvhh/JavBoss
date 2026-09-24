@@ -33,6 +33,7 @@ const GROUPS = [
       { type: 'settings:storage', icon: 'layers', label: zh('存储连接', 'Storage connections') },
       { type: 'settings:tokens', icon: 'shield', label: zh('扩展令牌', 'Extension tokens') },
       { type: 'settings:backup', icon: 'inbox', label: zh('备份与恢复', 'Backup & restore') },
+      { type: 'settings:update', icon: 'arrowUp', label: zh('程序更新', 'Program update') },
       { type: 'settings:tools', icon: 'list', label: zh('工具与日志', 'Tools & logs') },
     ],
   },

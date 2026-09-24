@@ -619,6 +619,41 @@ export async function deleteBackupFile(name) {
   return requestJSON('DELETE', `/backup/files/${encodeURIComponent(name)}`)
 }
 
+/* ---------------- 程序自更新（只覆盖程序目录） ----------------
+ *
+ * 发布包由用户手动上传到一个只读位置（本机目录或 WebDAV 远程目录），这里只列出并执行更新。
+ * 已核实 internal/server/update_api.go 与 internal/update：覆盖程序目录时排除 data/**，
+ * 且不会用包里的 config.toml 覆盖本机配置。所有写接口都返回同一份 overview。
+ */
+
+export async function getUpdateOverview() {
+  return requestJSON('GET', `/update`, { cache: 'no-store' })
+}
+
+/**
+ * `updatePath` 为空表示不改；`connectionId` 正数表示发布包在该 WebDAV 连接的远程目录，
+ * 0 表示本机目录。两者必须一起下发，否则从远程切回本地时后端会把本机路径当成远程路径。
+ */
+export async function updateUpdateSettings({ updatePath, connectionId } = {}) {
+  const body = {}
+  if (updatePath !== undefined) body.update_path = updatePath
+  if (connectionId !== undefined) {
+    const id = Number(connectionId)
+    body.connection_id = Number.isFinite(id) && id > 0 ? id : 0
+  }
+  return requestJSON('PUT', `/update/settings`, { body })
+}
+
+/** 立即用发布包覆盖程序目录；必须重启 JavBoss 才会加载新版本。 */
+export async function applyUpdate(name) {
+  return requestJSON('POST', `/update/apply`, { body: { name } })
+}
+
+/** 清除「上次更新」结果提示。 */
+export async function acknowledgeUpdate() {
+  return requestJSON('POST', `/update/acknowledge`, { body: {} })
+}
+
 /* ---------------- 目录管理 ---------------- */
 
 export async function fetchDirectories() {

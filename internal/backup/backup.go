@@ -35,6 +35,8 @@ const (
 	DataRootName = "data"
 	// RestoreDirName 是 data 下的恢复暂存目录。
 	RestoreDirName = "restore"
+	// UpdateDirName 是 data 下的程序更新暂存/回滚目录（见 internal/update）。
+	UpdateDirName = "update"
 
 	fileNameTimeLayout = "20060102-150405"
 )
@@ -45,6 +47,9 @@ var excludedTopDirs = map[string]struct{}{
 	"tools": {},
 	// 暂存目录必须排除，否则备份会把自己包含进去。
 	RestoreDirName: {},
+	// 更新暂存目录里是刚解压的发布包与被覆盖文件的回滚副本，同样不能进备份：
+	// 否则备份体积暴涨，恢复后还会把旧的程序文件带回来。
+	UpdateDirName: {},
 }
 
 // 打包时跳过的 data 顶层文件（单实例锁）。

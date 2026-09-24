@@ -60,6 +60,7 @@ func TestMigratedSchemaMatchesGormModels(t *testing.T) {
 		&models.DownloadJob{},
 		&models.StorageConnection{},
 		&models.BackupSettings{},
+		&models.UpdateSettings{},
 	); err != nil {
 		t.Fatalf("automigrate reference schema: %v", err)
 	}

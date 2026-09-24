@@ -30,6 +30,7 @@ import (
 	"javboss/internal/runtimeconfig"
 	"javboss/internal/server"
 	"javboss/internal/service"
+	"javboss/internal/update"
 	"javboss/internal/util"
 
 	"javboss/internal/manager"
@@ -135,6 +136,12 @@ func main() {
 		}
 	}
 
+	// 程序更新同样要在打开数据库之前收尾：上一次替换如果被打断（进程被强杀、
+	// Windows 上没有等到 helper 写完结果），这里负责回滚并把结论留给前端提示。
+	if result := update.HandleStartup(baseDir, filepath.Dir(cfg.DatabasePath)); result.RolledBack {
+		logger.Printf("rolled back an interrupted update: %d file(s) restored", result.Restored)
+	}
+
 	if err := common.MigrateLegacyDatabase(cfg); err != nil {
 		logger.Fatalf("migrate legacy database: %v", err)
 	}
@@ -184,6 +191,8 @@ func main() {
 	})
 
 	common.AppConfig = cfg
+	// 程序自更新要覆盖的目录：发布模式下是 javboss 可执行文件所在目录。
+	common.BaseDir = baseDir
 	common.ScreenshotManager = screenshotManager
 	common.CoverManager = coverManager
 	common.StreamManager = streamManager

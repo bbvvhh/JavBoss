@@ -14,4 +14,6 @@ var (
 	StreamManager     *manager.StreamManager
 	FFmpegToolManager *manager.FFmpegToolManager
 	AppConfig         *Config
+	// BaseDir 是程序文件所在目录（发布模式下是可执行文件目录）。程序自更新覆盖的就是它。
+	BaseDir string
 )
