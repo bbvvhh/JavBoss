@@ -1,21 +1,34 @@
 import { useState } from 'react'
 
+import {
+  IDOL_COVER_ASPECT,
+  IDOL_COVER_DEFAULT_CROP_LEFT,
+  IDOL_COVER_VISIBLE_RATIO,
+  coverImageStyle,
+} from '@/utils/idolCover'
+
 /**
  * 女优封面。
  *
- * JavBoss 的女优封面源图是 800×538 的横版作品封面，人物通常在画面右侧，
- * 所以默认只展示**最右侧 47%**（与 PC 端 `JavIdolGrid` 的
- * `IDOL_COVER_VISIBLE_RATIO = 0.47` 保持一致），纵横比 376:538。
+ * 源图是 800×538 的横版作品封面，人物通常在画面右侧，所以默认只展示**最右侧
+ * 47%**（与 PC 端 `JavIdolGrid` 的 `IDOL_COVER_VISIBLE_RATIO = 0.47` 一致），
+ * 纵横比 376:538。
  *
- * 实现方式：容器是可见窗口，img 用 `right: 0` + 放大到 100/0.47 ≈ 213% 宽，
- * 于是只有源图最右侧的那一段落在窗口里 —— 不是居中裁切。
+ * `cropLeft` 是库里存的 `cover_crop_left`（起点）。不传时用默认起点 0.53，
+ * 等价于「贴右显示」；传了就按用户保存的取景展示。定位方式见 `coverImageStyle`。
  *
  * 列表与详情页共用本组件，避免两处裁切方式跑偏。
  */
-export const IDOL_COVER_VISIBLE_RATIO = 0.47
-export const IDOL_COVER_ASPECT = '376 / 538'
+export { IDOL_COVER_ASPECT, IDOL_COVER_VISIBLE_RATIO }
 
-export default function IdolCover({ code, alt, className = '', style, rounded = true }) {
+export default function IdolCover({
+  code,
+  alt,
+  className = '',
+  style,
+  rounded = true,
+  cropLeft = IDOL_COVER_DEFAULT_CROP_LEFT,
+}) {
   const [failed, setFailed] = useState(false)
   const value = String(code || '').trim()
 
@@ -35,10 +48,8 @@ export default function IdolCover({ code, alt, className = '', style, rounded = 
           loading="lazy"
           decoding="async"
           onError={() => setFailed(true)}
-          className="absolute right-0 top-0 h-full object-cover"
-          // ⚠️ maxWidth 必须显式覆盖：Tailwind preflight 给所有 img 设了
-          // `max-width: 100%`，会把这里的 213% 宽压回 100%，裁切方向就退化成居中。
-          style={{ width: `${100 / IDOL_COVER_VISIBLE_RATIO}%`, maxWidth: 'none' }}
+          className="absolute top-0 h-full object-cover"
+          style={coverImageStyle(cropLeft)}
         />
       )}
     </div>

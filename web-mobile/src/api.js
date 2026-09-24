@@ -29,6 +29,7 @@
  */
 import { zh } from '@/utils/i18n'
 import { getErrorMessage } from '@/utils/errors'
+import { IDOL_COVER_DEFAULT_CROP_LEFT } from '@/utils/idolCover'
 
 const jsonHeaders = { 'Content-Type': 'application/json' }
 export const authExpiredEvent = 'javboss:auth-expired'
@@ -434,6 +435,32 @@ export async function fetchJavIdols({
     params.set(`idol_${range.key}_max`, String(range.max))
   }
   return requestJSON('GET', `/jav/idols?${params.toString()}`)
+}
+
+/**
+ * 女优封面的候选作品（「自动选择」之外可以指定用哪部作品的封面）。
+ * 返回项形如 `{ id, code, title, solo }`。
+ */
+export async function fetchJavIdolCoverOptions(id) {
+  const data = await requestJSON('GET', `/jav/idols/${encodeURIComponent(id)}/cover-options`, {
+    cache: 'no-store',
+  })
+  return Array.isArray(data?.items) ? data.items : []
+}
+
+/**
+ * 保存女优封面：指定封面作品 + 取景起点。
+ *
+ * `javId = 0` 是「自动选择」（后端顺带把起点重置回默认值），只写数据库里女优
+ * 那一行的 `cover_jav_id` / `cover_crop_left`，不下载也不改动任何文件。
+ */
+export async function updateJavIdolCover(
+  id,
+  { javId = 0, cropLeft = IDOL_COVER_DEFAULT_CROP_LEFT } = {}
+) {
+  return requestJSON('PUT', `/jav/idols/${encodeURIComponent(id)}/cover`, {
+    body: { jav_id: javId, crop_left: cropLeft },
+  })
 }
 
 export async function fetchJavStudios({ limit = 24, offset = 0, search = '' } = {}) {

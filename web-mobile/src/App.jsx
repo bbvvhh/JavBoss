@@ -4,6 +4,7 @@ import ActionSheet from '@/components/ActionSheet'
 import DensitySheet from '@/components/DensitySheet'
 import FilterSheet from '@/components/FilterSheet'
 import Icon from '@/components/Icons'
+import IdolCoverEditorPage from '@/components/IdolCoverEditorPage'
 import { JavDetailPage, JavIdolPage } from '@/components/JavDetailPage'
 import JavDensitySheet from '@/components/JavDensitySheet'
 import JavFavoriteSheet from '@/components/JavFavoriteSheet'
@@ -335,6 +336,9 @@ export default function App() {
       ) : null}
       {topPage?.type === 'jav-idol' ? (
         <JavIdolPage idol={topPage.payload} onClose={() => useStore.getState().popPage()} />
+      ) : null}
+      {topPage?.type === 'jav-idol-cover' ? (
+        <IdolCoverEditorPage idol={topPage.payload} onClose={() => useStore.getState().popPage()} />
       ) : null}
       {topPage?.type === 'playback-history' ? (
         <PlaybackHistoryPage onClose={() => useStore.getState().popPage()} />

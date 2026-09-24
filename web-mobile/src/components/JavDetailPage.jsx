@@ -7,7 +7,7 @@ import JavFavoritePickerSheet from '@/components/JavFavoritePickerSheet'
 import JavWorkCard from '@/components/JavWorkCard'
 import SubPage from '@/components/SubPage'
 import VideoPreviewGrid from '@/components/VideoPreviewGrid'
-import { useStore } from '@/store'
+import { idolPatchKey, useStore } from '@/store'
 import { formatBytes, parseVideoFingerprint } from '@/utils/display'
 import { getErrorMessage } from '@/utils/errors'
 import { formatCount, formatDuration, formatReleaseDate } from '@/utils/format'
@@ -409,6 +409,7 @@ export function JavIdolPage({ idol, onClose }) {
   const pushPage = useStore((state) => state.pushPage)
   const jumpToJavWorks = useStore((state) => state.jumpToJavWorks)
   const patchJavIdol = useStore((state) => state.patchJavIdol)
+  const itemPatches = useStore((state) => state.javItemPatches)
 
   const [works, setWorks] = useState([])
   const [worksLoading, setWorksLoading] = useState(true)
@@ -417,6 +418,10 @@ export function JavIdolPage({ idol, onClose }) {
 
   const idolId = Number(idol?.id) || null
   const total = Number(idol?.work_count) || works.length
+  // 封面可能刚在编辑页改过，补丁表里的是最新值；payload 是进页面时的那一份快照。
+  // 没有补丁时保持原引用，避免每次渲染都造新对象。
+  const patch = idolId ? itemPatches[idolPatchKey(idolId)] : null
+  const coverIdol = patch ? { ...idol, ...patch } : idol
   const PREVIEW = 6
 
   useEffect(() => {
@@ -474,12 +479,32 @@ export function JavIdolPage({ idol, onClose }) {
         ) : null
       }
     >
-      <div className="flex justify-center px-4 py-4">
-        <IdolCover
-          code={idol?.cover_code}
-          alt={idol?.name}
-          className="w-[62%] max-w-[260px] shadow-[0_2px_10px_-4px_rgba(15,23,42,0.35)]"
-        />
+      <div className="flex flex-col items-center gap-2 px-4 py-4">
+        {/* 点封面进封面编辑页：换一张作品封面或调取景起点（只写数据库）。 */}
+        <button
+          type="button"
+          onClick={() => pushPage('jav-idol-cover', coverIdol)}
+          disabled={!idolId}
+          aria-label={zh('编辑女优封面', 'Edit idol cover')}
+          className="w-[62%] max-w-[260px] disabled:opacity-60"
+        >
+          <IdolCover
+            code={coverIdol?.cover_code}
+            alt={coverIdol?.name}
+            cropLeft={coverIdol?.cover_crop_left}
+            className="w-full shadow-[0_2px_10px_-4px_rgba(15,23,42,0.35)]"
+          />
+        </button>
+        {idolId ? (
+          <button
+            type="button"
+            onClick={() => pushPage('jav-idol-cover', coverIdol)}
+            className="flex items-center gap-1 text-[11.5px] font-semibold text-brand"
+          >
+            <Icon name="image" size={13} />
+            {zh('更换封面', 'Change cover')}
+          </button>
+        ) : null}
       </div>
 
       {/* 收藏这位女优：走的是女优收藏夹（/jav/idols/:id/favorite-groups），

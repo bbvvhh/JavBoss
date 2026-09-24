@@ -318,7 +318,12 @@ export default function JavListPage() {
                       onClick={() => pushPage('jav-idol', idol)}
                       className="overflow-hidden rounded-card border border-[#e6e8ec] bg-white text-left"
                     >
-                      <IdolCover code={idol.cover_code} alt={primary} className="w-full" />
+                      <IdolCover
+                        code={idol.cover_code}
+                        alt={primary}
+                        cropLeft={idol.cover_crop_left}
+                        className="w-full"
+                      />
                       <div className={compact ? 'px-1 pb-1.5 pt-1' : 'px-1.5 pb-2 pt-1.5'}>
                         <h3
                           className={`line-clamp-2 font-semibold leading-[1.3] text-zinc-800 ${
