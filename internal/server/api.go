@@ -28,7 +28,7 @@ func RegisterRoutes(router gin.IRoutes) {
 	router.GET("/update", getUpdate)
 	router.PUT("/update/settings", updateUpdateSettings)
 	router.POST("/update/apply", applyUpdate)
-	router.POST("/update/download", downloadUpdate)
+		router.POST("/update/download", downloadUpdate)
 	router.POST("/update/acknowledge", acknowledgeUpdate)
 	router.GET("/tools", getTools)
 	router.POST("/tools/ffmpeg/download", downloadFFmpeg)

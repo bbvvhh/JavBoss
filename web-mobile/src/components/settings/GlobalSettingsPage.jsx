@@ -101,6 +101,7 @@ export default function GlobalSettingsPage({ onClose }) {
   const initial = useMemo(
     () => ({
       initial_view_mode: initialViewMode(config),
+      default_random: configFlag(config, 'default_random', true),
       video_page_size: configInt(config, 'video_page_size', 25),
       video_sort: normalizeVideoSort(configString(config, 'video_sort', 'recent')),
       video_hide_jav: configFlag(config, 'video_hide_jav', false),
@@ -241,6 +242,21 @@ export default function GlobalSettingsPage({ onClose }) {
                 { value: 'video', label: zh('视频模式', 'Video') },
                 { value: 'jav', label: zh('JAV 模式', 'JAV') },
               ]}
+            />
+          }
+        />
+        <FormRow
+          layout="inline"
+          label={zh('默认随机展示', 'Random by default')}
+          hint={zh(
+            '进入视频 / JAV 作品列表时按随机顺序展示',
+            'Show the video and JAV works lists in random order'
+          )}
+          control={
+            <Switch
+              checked={form.default_random}
+              onChange={set('default_random')}
+              label={zh('默认随机展示', 'Random by default')}
             />
           }
         />

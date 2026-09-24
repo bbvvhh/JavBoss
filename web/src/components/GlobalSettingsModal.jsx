@@ -124,6 +124,8 @@ export default function GlobalSettingsModal({
   onSaveDefaultPlayer,
   initialViewMode,
   onSaveInitialViewMode,
+  defaultRandomEnabled = true,
+  onSaveDefaultRandom,
   coverRedownloadOnMissing = true,
   onSaveCoverRedownloadOnMissing,
   playerWindowWidth,
@@ -159,6 +161,9 @@ export default function GlobalSettingsModal({
   const [initialViewModeInput, setInitialViewModeInput] = useState('video')
   const [initialViewModeError, setInitialViewModeError] = useState('')
   const [savingInitialViewMode, setSavingInitialViewMode] = useState(false)
+  const [defaultRandomInput, setDefaultRandomInput] = useState(true)
+  const [defaultRandomError, setDefaultRandomError] = useState('')
+  const [savingDefaultRandom, setSavingDefaultRandom] = useState(false)
   const [coverRedownloadInput, setCoverRedownloadInput] = useState(true)
   const [coverRedownloadError, setCoverRedownloadError] = useState('')
   const [savingCoverRedownload, setSavingCoverRedownload] = useState(false)
@@ -239,6 +244,8 @@ export default function GlobalSettingsModal({
       setDefaultPlayerError('')
       setInitialViewModeInput(initialViewMode === 'jav' ? 'jav' : 'video')
       setInitialViewModeError('')
+      setDefaultRandomInput(defaultRandomEnabled === true)
+      setDefaultRandomError('')
       setCoverRedownloadInput(coverRedownloadOnMissing === true)
       setCoverRedownloadError('')
       setPlayerWindowWidthInput(String(playerWindowWidth ?? PLAYER_BASIC_DEFAULTS.windowWidth))
@@ -265,6 +272,7 @@ export default function GlobalSettingsModal({
     allowLANAccess,
     defaultPlayer,
     initialViewMode,
+    defaultRandomEnabled,
     coverRedownloadOnMissing,
     playerWindowWidth,
     playerWindowHeight,
@@ -727,6 +735,20 @@ export default function GlobalSettingsModal({
     const currentInitialViewMode = initialViewMode === 'jav' ? 'jav' : 'video'
     const initialViewModeUnchanged = initialViewModeInput === currentInitialViewMode
 
+    const defaultRandomUnchanged = defaultRandomInput === (defaultRandomEnabled === true)
+
+    const handleSaveDefaultRandom = async () => {
+      setDefaultRandomError('')
+      setSavingDefaultRandom(true)
+      try {
+        await onSaveDefaultRandom?.(defaultRandomInput)
+      } catch (err) {
+        setDefaultRandomError(getErrorMessage(err))
+      } finally {
+        setSavingDefaultRandom(false)
+      }
+    }
+
     return (
       <div className="space-y-5">
         <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
@@ -772,6 +794,50 @@ export default function GlobalSettingsModal({
                 className="rounded-xl bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-60"
               >
                 {savingInitialViewMode ? zh('保存中…', 'Saving...') : zh('保存', 'Save')}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <div className="space-y-4">
+            <div>
+              <h4 className="text-sm font-semibold text-zinc-800">
+                {zh('默认随机展示', 'Random by Default')}
+              </h4>
+              <p className="mt-1 text-sm text-zinc-500">
+                {zh(
+                  '进入「视频」或「JAV」模块时默认按随机顺序展示一页内容。关闭后按各自设置的默认排序展示。',
+                  'Entering the Video or JAV module shows one page in random order. When disabled, each module uses its configured default sort.'
+                )}
+              </p>
+            </div>
+
+            <label className="flex items-center gap-3 text-sm font-medium text-zinc-800">
+              <input
+                type="checkbox"
+                checked={defaultRandomInput}
+                onChange={(event) => {
+                  setDefaultRandomInput(event.target.checked)
+                  setDefaultRandomError('')
+                }}
+                className="h-4 w-4 rounded"
+              />
+              <span>{zh('默认使用随机展示', 'Use random order by default')}</span>
+            </label>
+
+            {defaultRandomError ? (
+              <div className="text-sm text-red-600">{defaultRandomError}</div>
+            ) : null}
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={handleSaveDefaultRandom}
+                disabled={savingDefaultRandom || defaultRandomUnchanged}
+                className="rounded-xl bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-60"
+              >
+                {savingDefaultRandom ? zh('保存中…', 'Saving...') : zh('保存', 'Save')}
               </button>
             </div>
           </div>

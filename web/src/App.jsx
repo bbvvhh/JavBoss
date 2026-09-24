@@ -92,6 +92,7 @@ import VideoRoute from '@/routes/VideoRoute'
 import { zh } from '@/utils/i18n'
 import { getErrorMessage } from '@/utils/errors'
 import { buildVideoFullPath } from '@/utils/display'
+import { shouldApplyDefaultRandom } from '@/utils/defaultRandom'
 import { mediaRequestFields, isRemoteIdentity } from '@/utils/directorySource'
 import { getIdolDisplayName } from '@/utils/javIdol'
 import { withJavTagDisplayName } from '@/utils/javTag'
@@ -164,6 +165,9 @@ function applyScrapeOverrideToVideo(video, override) {
 export default function App() {
   const { changePassword, logout } = useAuth()
   const pendingVideoTagIdsRef = useRef(null)
+  // 「默认随机展示」每个模块只在首次进入时判定一次，用户手动退出后不再被拽回。
+  const videoDefaultRandomAppliedRef = useRef(false)
+  const javDefaultRandomAppliedRef = useRef(false)
   const {
     page,
     pageSize,
@@ -1228,6 +1232,12 @@ export default function App() {
       if (parsed.view === 'jav') {
         const { jav } = parsed
         const current = useStore.getState()
+        // 首次进入 JAV 作品页时按设置决定是否直接进随机；女优 / 片商 / 系列页不参与。
+        const applyDefaultRandom =
+          jav.tab === 'list' &&
+          !javDefaultRandomAppliedRef.current &&
+          shouldApplyDefaultRandom(jav, configFlag(current.config?.default_random, true))
+        if (jav.tab === 'list') javDefaultRandomAppliedRef.current = true
         const sameIdolFavoriteGroup =
           jav.tab === 'idol' &&
           Number(jav.favoriteGroupId || 0) > 0 &&
@@ -1237,7 +1247,7 @@ export default function App() {
           viewMode: 'jav',
           videoTempSort: '',
           javTab: jav.tab,
-          javRandomMode: jav.tab === 'list' ? jav.random : false,
+          javRandomMode: jav.tab === 'list' ? jav.random || applyDefaultRandom : false,
           javRandomSeed: jav.tab === 'list' && jav.random ? jav.seed : null,
           javSearchTerm: jav.search,
           javIdolIds: jav.tab === 'list' ? jav.idolIds : [],
@@ -1275,18 +1285,25 @@ export default function App() {
         setJavSearchInput(jav.search)
         if (jav.tab === 'list' && jav.random) {
           useStore.getState().loadJavRandom(jav.seed ?? undefined)
+        } else if (applyDefaultRandom) {
+          useStore.getState().loadJavRandom()
         }
         setHydrated(true)
         return
       }
 
       const { video } = parsed
+      // 首次进入视频模块时按设置决定是否直接进随机。
+      const applyDefaultRandom =
+        !videoDefaultRandomAppliedRef.current &&
+        shouldApplyDefaultRandom(video, configFlag(useStore.getState().config?.default_random, true))
+      videoDefaultRandomAppliedRef.current = true
       useStore.setState({
         viewMode: 'video',
         javTempSort: '',
         idolTempSort: '',
         videoTempSort: video.random ? '' : video.tempSort,
-        randomMode: video.random,
+        randomMode: video.random || applyDefaultRandom,
         randomSeed: video.random ? video.seed : null,
         searchTerm: video.search,
         page: video.random ? 1 : video.page,
@@ -1300,6 +1317,8 @@ export default function App() {
       }
       if (video.random) {
         useStore.getState().loadRandom(video.seed ?? undefined)
+      } else if (applyDefaultRandom) {
+        useStore.getState().loadRandom()
       }
       setHydrated(true)
     },
@@ -5030,6 +5049,11 @@ export default function App() {
         initialViewMode={initialViewMode}
         onSaveInitialViewMode={async (mode) => {
           const cfg = await updateConfig({ initial_view_mode: normalizeInitialViewMode(mode) })
+          useStore.setState({ config: cfg })
+        }}
+        defaultRandomEnabled={configFlag(config?.default_random, true)}
+        onSaveDefaultRandom={async (enabled) => {
+          const cfg = await updateConfig({ default_random: Boolean(enabled) })
           useStore.setState({ config: cfg })
         }}
         coverRedownloadOnMissing={configFlag(config?.jav_cover_redownload_on_missing, true)}

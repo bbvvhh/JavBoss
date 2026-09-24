@@ -114,6 +114,7 @@ func updateConfig(c *gin.Context) {
 		JavCoverRedownload     *bool                 `json:"jav_cover_redownload_on_missing"`
 		DefaultPlayer          string                `json:"default_player"`
 		InitialViewMode        string                `json:"initial_view_mode"`
+		DefaultRandom          *bool                 `json:"default_random"`
 		AllowLANAccess         *bool                 `json:"allow_lan_access"`
 		ProxyHost              *string               `json:"proxy_host"`
 		ProxyPort              *int                  `json:"proxy_port"`
@@ -306,6 +307,9 @@ func updateConfig(c *gin.Context) {
 			respondLocalizedError(c, http.StatusBadRequest, "初始页面模式无效", "Invalid initial page mode")
 			return
 		}
+	}
+	if req.DefaultRandom != nil {
+		entries["default_random"] = strconv.FormatBool(*req.DefaultRandom)
 	}
 	if req.AllowLANAccess != nil {
 		entries["allow_lan_access"] = strconv.FormatBool(*req.AllowLANAccess)

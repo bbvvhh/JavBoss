@@ -19,6 +19,7 @@ import {
   normalizeJavSort,
 } from '@/constants/jav'
 import { initialViewMode } from '@/utils/javDisplay'
+import { configFlag } from '@/utils/config'
 import {
   DEFAULT_DENSITY,
   readStoredDensity,
@@ -30,6 +31,12 @@ const PAGE_SIZE = 25
 const SEARCH_HISTORY_KEY = 'javboss-mobile:search-history'
 const MAX_SEARCH_HISTORY = 10
 const JAV_DENSITY_KEY = 'javboss-mobile:jav-density'
+const RANDOM_SEED_MAX = 2147483646
+
+/** 随机模式用 `sort=random&seed=N` 让「随机但分页稳定」；每次进入随机都要换一个新种子。 */
+function nextRandomSeed() {
+  return Math.floor(Math.random() * RANDOM_SEED_MAX) + 1
+}
 
 function readStoredJavDensity() {
   try {
@@ -127,8 +134,7 @@ export const useStore = create((set, get) => ({
   /** 随机模式：后端用 sort=random&seed=N 做「随机但分页稳定」的排序。 */
   randomSeed: null,
   rollRandom: () => {
-    const seed = Math.floor(Math.random() * 2147483646) + 1
-    set({ randomSeed: seed })
+    set({ randomSeed: nextRandomSeed() })
   },
   clearRandom: () => set({ randomSeed: null }),
 
@@ -194,6 +200,12 @@ export const useStore = create((set, get) => ({
       patch.view = initialViewMode(cfg)
       const javSort = normalizeJavSort(String(cfg?.jav_sort || '').toLowerCase(), '')
       if (javSort) patch.javSort = javSort
+      // 「默认随机展示」（缺省开启）：首次进入视频 / JAV 作品列表就按随机顺序展示，
+      // 用户随时可以点随机 chip 退出，退出后不会在本次会话里被重新打开。
+      if (configFlag(cfg, 'default_random', true)) {
+        patch.randomSeed = nextRandomSeed()
+        patch.javRandomSeed = nextRandomSeed()
+      }
       set(patch)
       return cfg
     } catch {
@@ -286,7 +298,7 @@ export const useStore = create((set, get) => ({
   setJavSort: (value) => set({ javSort: normalizeJavSort(value), javRandomSeed: null }),
 
   javRandomSeed: null,
-  rollJavRandom: () => set({ javRandomSeed: Math.floor(Math.random() * 2147483646) + 1 }),
+  rollJavRandom: () => set({ javRandomSeed: nextRandomSeed() }),
   clearJavRandom: () => set({ javRandomSeed: null }),
 
   javDensity: readStoredJavDensity(),
