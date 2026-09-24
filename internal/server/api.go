@@ -63,6 +63,12 @@ func RegisterRoutes(router gin.IRoutes) {
 	// 只把 VideoLocation 标记为已删除，绝不碰磁盘上的文件。移动端专用（见 DESIGN.md §3.6）。
 	router.POST("/videos/locations/hide", hideVideoLocations)
 	router.POST("/videos/:id/play", incrementVideoPlayCount)
+	// 播放记录：一个视频文件一条最新记录，用于列表展示与续播。
+	router.GET("/playback/history", listPlaybackHistory)
+	router.DELETE("/playback/history", clearPlaybackHistory)
+	router.GET("/videos/:id/playback", getVideoPlayback)
+	router.PUT("/videos/:id/playback", updateVideoPlayback)
+	router.DELETE("/videos/:id/playback", deleteVideoPlayback)
 	router.POST("/videos/play", playVideoFile)
 	router.POST("/videos/playlist", playVideoPlaylist)
 	router.POST("/videos/open", openVideoFile)

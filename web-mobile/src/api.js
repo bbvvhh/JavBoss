@@ -128,6 +128,45 @@ export async function incrementVideoPlayCount(id) {
   await requestOK('POST', `/videos/${id}/play`)
 }
 
+// 播放记录：服务端按 video_id 只保留一条最新记录；移动端 localStorage 进度仅作兜底。
+export async function fetchPlaybackHistory({ limit = 50, offset = 0 } = {}) {
+  const params = new URLSearchParams()
+  params.set('limit', String(limit))
+  params.set('offset', String(offset))
+  const data = await requestJSON('GET', `/playback/history?${params.toString()}`, {
+    cache: 'no-store',
+  })
+  return { items: Array.isArray(data?.items) ? data.items : [], total: Number(data?.total) || 0 }
+}
+
+export async function fetchVideoPlayback(id) {
+  const data = await requestJSON('GET', `/videos/${id}/playback`, { cache: 'no-store' })
+  return data?.playback || null
+}
+
+export async function reportVideoPlayback(
+  id,
+  { positionSec = 0, durationSec = 0, locationId = 0 } = {}
+) {
+  return requestJSON('PUT', `/videos/${id}/playback`, {
+    body: {
+      position_sec: positionSec,
+      duration_sec: durationSec,
+      location_id: locationId,
+    },
+  })
+}
+
+export async function clearVideoPlayback(id) {
+  await requestOK('DELETE', `/videos/${id}/playback`)
+}
+
+// 清空全部播放记录（「清空观看记录」会连同本机进度一起清）。
+export async function clearAllPlayback() {
+  const data = await requestJSON('DELETE', '/playback/history')
+  return Number(data?.deleted) || 0
+}
+
 /* ---------------- 标签（只写数据库） ---------------- */
 
 export async function createTag(name) {

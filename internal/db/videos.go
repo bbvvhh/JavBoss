@@ -527,6 +527,12 @@ func DeleteByIDs(ctx context.Context, ids []int64) error {
 	if len(ids) == 0 {
 		return nil
 	}
+	// 播放记录跟着视频走，避免删视频后留下查不到视频的孤儿记录。
+	if err := common.DB.WithContext(ctx).
+		Where("video_id IN ?", ids).
+		Delete(&models.PlaybackHistory{}).Error; err != nil {
+		return fmt.Errorf("delete video playback history: %w", err)
+	}
 	if err := common.DB.WithContext(ctx).Where("id IN ?", ids).Delete(&models.Video{}).Error; err != nil {
 		return fmt.Errorf("delete videos: %w", err)
 	}

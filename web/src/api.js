@@ -328,6 +328,54 @@ export async function fetchPlaybackInfo(id, { locationId } = {}) {
   return res.json()
 }
 
+// 播放记录：一个视频文件一条最新记录，用于列表展示与续播。
+export async function fetchPlaybackHistory({ limit = 50, offset = 0 } = {}) {
+  const params = new URLSearchParams()
+  params.set('limit', String(limit))
+  params.set('offset', String(offset))
+  const res = await apiFetch(`/playback/history?${params.toString()}`, { cache: 'no-store' })
+  if (!res.ok) {
+    throw await apiError(res)
+  }
+  const data = await res.json()
+  return { items: Array.isArray(data?.items) ? data.items : [], total: Number(data?.total) || 0 }
+}
+
+export async function fetchVideoPlayback(id) {
+  const res = await apiFetch(`/videos/${id}/playback`, { cache: 'no-store' })
+  if (!res.ok) {
+    throw await apiError(res)
+  }
+  const data = await res.json()
+  return data?.playback || null
+}
+
+export async function reportVideoPlayback(
+  id,
+  { positionSec = 0, durationSec = 0, locationId = 0 } = {}
+) {
+  const res = await apiFetch(`/videos/${id}/playback`, {
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      position_sec: positionSec,
+      duration_sec: durationSec,
+      location_id: locationId,
+    }),
+  })
+  if (!res.ok) {
+    throw await apiError(res)
+  }
+  return res.json()
+}
+
+export async function clearVideoPlayback(id) {
+  const res = await apiFetch(`/videos/${id}/playback`, { method: 'DELETE' })
+  if (!res.ok) {
+    throw await apiError(res)
+  }
+}
+
 export async function fetchVideoScreenshots(id) {
   const res = await apiFetch(`/videos/${id}/screenshots`, { cache: 'no-store' })
   if (!res.ok) {

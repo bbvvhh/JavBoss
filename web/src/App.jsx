@@ -701,6 +701,17 @@ export default function App() {
     [browserPlaybackOnly, defaultPlayer, getVideoDirPath, getVideoRelPath, showCenterToast]
   )
 
+  // 播放记录项：直接用记录里的 video 载荷播放。浏览器播放器会自动读服务端记录续播，
+  // MPV/系统播放器按既定范围不实现续播。
+  const handlePlayHistoryItem = useCallback(
+    (item) => {
+      const video = item?.video
+      if (!video?.id) return
+      playVideoWith(video, defaultPlayer)
+    },
+    [defaultPlayer, playVideoWith]
+  )
+
   const handleOpenPlayer = useCallback(
     (video) => {
       const choices = getVideoLocationChoices(video)
@@ -4267,6 +4278,7 @@ export default function App() {
         }
         onOpenSelectionOps={isJavMode ? javSelection.openOps : () => setSelectionOpsOpen(true)}
         onClearSelection={isJavMode ? javSelection.clear : clearSelection}
+        onPlayHistoryItem={handlePlayHistoryItem}
         onRandomClick={
           !isJavMode ? handleVideoRandomClick : javTab === 'list' ? handleJavRandomClick : null
         }

@@ -124,6 +124,13 @@ const PATHS = {
       <path d="M12 7.5V12l3 1.8" {...STROKE} />
     </>
   ),
+  // 播放记录入口：带回溯箭头的表盘，与「clock」区分开。
+  history: (
+    <>
+      <path d="M3.8 12a8.2 8.2 0 1 0 2.5-5.9M3.8 5.2V10h4.8" {...STROKE} />
+      <path d="M12 8.2V12l2.9 1.7" {...STROKE} />
+    </>
+  ),
   info: (
     <>
       <circle cx="12" cy="12" r="8.4" {...STROKE} />

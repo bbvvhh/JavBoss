@@ -4,11 +4,14 @@ import videojs from 'video.js'
 import 'video.js/dist/video-js.css'
 
 import {
+  clearVideoPlayback,
   createVideoScreenshot,
   fetchPlaybackInfo,
+  fetchVideoPlayback,
   fetchVideoSubtitleVTT,
   fetchVideoSubtitles,
   incrementVideoPlayCount,
+  reportVideoPlayback,
 } from '@/api'
 import BottomSheet from '@/components/BottomSheet'
 import Icon from '@/components/Icons'
@@ -22,7 +25,13 @@ import { selectPlaybackSource, startBrowserPlayback } from '@/utils/browserPlayb
 import { getVideoDisplayName, parseVideoFingerprint, formatBytes } from '@/utils/display'
 import { formatDuration, formatReleaseDate } from '@/utils/format'
 import { isBoostEnabled, readBoostSpeed } from '@/utils/playbackPrefs'
-import { clearProgress, readProgress, writeProgress } from '@/utils/progress'
+import {
+  clearProgress,
+  isResumeEnabled,
+  readProgress,
+  resumeSecondsFrom,
+  writeProgress,
+} from '@/utils/progress'
 import { formatSeekClock, formatSeekDelta } from '@/utils/seekMath'
 import { getErrorMessage } from '@/utils/errors'
 import { zh } from '@/utils/i18n'
@@ -43,9 +52,13 @@ export default function PlayerPage({ video, startTime = 0, onClose }) {
   const [player, setPlayer] = useState(null)
   const [status, setStatus] = useState('loading')
   const [errorText, setErrorText] = useState('')
-  // 从预览图（截图）跳进来时用请求的时间点，否则续播本机记录的上次进度。
+  // 从预览图（截图）跳进来时用请求的时间点，否则续播上次进度。
   const requestedStart = Math.max(0, Number(startTime) || 0)
   const [resumeAt, setResumeAt] = useState(() => requestedStart || readProgress(video?.id))
+  // 是否展示「已从上次位置续播」提示（播完或点了「从头播放」后收起）。
+  const [resumeNotice, setResumeNotice] = useState(false)
+  // 播放记录读回来之前不创建播放器，避免「先从头播、再跳回上次位置」的闪动。
+  const [resumeReady, setResumeReady] = useState(false)
   const [subtitles, setSubtitles] = useState([])
   const [subtitlesLoading, setSubtitlesLoading] = useState(false)
   const [activeSubtitleId, setActiveSubtitleId] = useState(null)
@@ -151,6 +164,43 @@ export default function PlayerPage({ video, startTime = 0, onClose }) {
       cancelled = true
     }
   }, [video?.id])
+
+  // 续播位置：以服务端播放记录为准，读不到（离线 / 记录不存在）时用本机
+  // localStorage 进度兜底；关掉「续播」开关则既不读也不写。
+  useEffect(() => {
+    const localSeconds = readProgress(video?.id)
+    setResumeAt(requestedStart || localSeconds)
+    setResumeNotice(requestedStart <= 0 && localSeconds > 0)
+    if (!video?.id) {
+      setResumeReady(false)
+      return undefined
+    }
+    if (requestedStart > 0 || !isResumeEnabled()) {
+      setResumeReady(true)
+      return undefined
+    }
+    let cancelled = false
+    setResumeReady(false)
+    fetchVideoPlayback(video.id)
+      .then((record) => {
+        if (cancelled) return
+        const seconds = resumeSecondsFrom(record)
+        // 服务端有记录就用它；没有（或太靠前）再退回本机进度。
+        setResumeAt(seconds > 0 ? seconds : localSeconds)
+        setResumeNotice(seconds > 0 || localSeconds > 0)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setResumeAt(localSeconds)
+        setResumeNotice(localSeconds > 0)
+      })
+      .finally(() => {
+        if (!cancelled) setResumeReady(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [video?.id, requestedStart])
 
   // 长按加速的本机偏好读一次就够：播放页是全屏浮层，要改设置必须先关掉它。
   const [boostEnabled] = useState(() => isBoostEnabled())
@@ -309,11 +359,13 @@ export default function PlayerPage({ video, startTime = 0, onClose }) {
 
   useEffect(() => {
     const stage = stageRef.current
-    if (!video || !stage) return undefined
+    if (!video || !stage || !resumeReady) return undefined
 
     let disposed = false
     let stopPlayback = null
     let saveTimer = null
+    // 播完（ended）后不再回写记录，否则刚清掉的位置会被卸载时的 persist 又写回去。
+    let finished = false
 
     const element = document.createElement('video-js')
     element.classList.add('vjs-big-play-centered')
@@ -356,9 +408,24 @@ export default function PlayerPage({ video, startTime = 0, onClose }) {
       controlBar.removeChild(progressControl)
     }
 
+    // 进度同时写本机 localStorage（兜底）与服务端播放记录（列表展示与跨设备续播）。
+    // 上报失败只在控制台提示一次：以前静默吞掉异常，接口一旦不匹配就很难发现。
+    let reportFailureNotified = false
     const persist = () => {
-      const current = player.currentTime()
-      if (Number.isFinite(current)) writeProgress(video.id, current)
+      const current = Number(player.currentTime())
+      if (!Number.isFinite(current)) return
+      writeProgress(video.id, current)
+      if (current < 1 || !isResumeEnabled()) return
+      const duration = Number(player.duration())
+      reportVideoPlayback(video.id, {
+        positionSec: current,
+        durationSec: Number.isFinite(duration) ? duration : 0,
+        locationId: Number(video.location_id) || 0,
+      }).catch((error) => {
+        if (reportFailureNotified) return
+        reportFailureNotified = true
+        console.warn(zh('播放进度上报失败', 'Failed to report playback position'), error)
+      })
     }
     const onTimeUpdate = () => {
       if (saveTimer !== null) return
@@ -368,7 +435,13 @@ export default function PlayerPage({ video, startTime = 0, onClose }) {
       }, SAVE_INTERVAL_MS)
     }
     const onPause = () => persist()
-    const onEnded = () => clearProgress(video.id)
+    // 看完了就清掉记录，下次进来从头播。
+    const onEnded = () => {
+      finished = true
+      clearProgress(video.id)
+      clearVideoPlayback(video.id).catch(() => {})
+      setResumeNotice(false)
+    }
 
     player.on('timeupdate', onTimeUpdate)
     player.on('pause', onPause)
@@ -406,7 +479,7 @@ export default function PlayerPage({ video, startTime = 0, onClose }) {
 
     return () => {
       disposed = true
-      persist()
+      if (!finished) persist()
       if (saveTimer !== null) window.clearTimeout(saveTimer)
       stopPlayback?.()
       player.off('timeupdate', onTimeUpdate)
@@ -421,7 +494,7 @@ export default function PlayerPage({ video, startTime = 0, onClose }) {
         /* 卸载竞态，忽略 */
       }
     }
-  }, [video, resumeAt, removeSubtitleTracks])
+  }, [video, resumeAt, resumeReady, removeSubtitleTracks])
 
   if (!video) return null
 
@@ -573,7 +646,7 @@ export default function PlayerPage({ video, startTime = 0, onClose }) {
             </div>
           ) : null}
 
-          {resumeAt > 0 && requestedStart <= 0 ? (
+          {resumeNotice && requestedStart <= 0 ? (
             <div className="mt-3 flex items-center gap-2 rounded-[10px] border border-orange-200 bg-orange-50 px-3 py-2.5 text-[12px] text-orange-800">
               <Icon name="clock" size={15} className="flex-none" />
               <span className="flex-1">
@@ -585,8 +658,11 @@ export default function PlayerPage({ video, startTime = 0, onClose }) {
               <button
                 type="button"
                 onClick={() => {
+                  // 「从头播放」同时清本机进度与服务端记录，否则下次进来又提醒续播。
                   clearProgress(video.id)
+                  clearVideoPlayback(video.id).catch(() => {})
                   setResumeAt(0)
+                  setResumeNotice(false)
                 }}
                 className="flex-none font-semibold underline"
               >

@@ -76,6 +76,16 @@ export function clearProgress(videoId) {
   }
 }
 
+/**
+ * 服务端播放记录里可用的续播秒数。
+ * 与 localStorage 进度用同一个片头阈值：不到阈值就当没记录（返回 0）。
+ */
+export function resumeSecondsFrom(record) {
+  const position = Number(record?.position_sec)
+  if (!Number.isFinite(position) || position < MIN_RESUME_SECONDS) return 0
+  return position
+}
+
 /** 已记录进度的视频条数（设置页用来显示「共 N 部有观看记录」）。 */
 export function countProgress() {
   const store = storage()

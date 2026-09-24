@@ -4,10 +4,13 @@ import SubtitlesRoundedIcon from '@mui/icons-material/SubtitlesRounded'
 import videojs from 'video.js'
 import 'video.js/dist/video-js.css'
 import {
+  clearVideoPlayback,
   createVideoScreenshot,
   fetchPlaybackInfo,
+  fetchVideoPlayback,
   fetchVideoSubtitleVTT,
   fetchVideoSubtitles,
+  reportVideoPlayback,
 } from '@/api'
 import { getVideoDisplayName } from '@/utils/display'
 import {
@@ -16,6 +19,7 @@ import {
   normalizePlayerHotkeyKey,
   parsePlayerHotkeys,
 } from '@/utils/playerHotkeys'
+import { PLAYBACK_REPORT_INTERVAL_MS, formatClock, resumeSecondsFrom } from '@/utils/playback'
 import { zh } from '@/utils/i18n'
 import AppModal from '@/components/AppModal'
 import PlayerSubtitlePanel from '@/components/PlayerSubtitlePanel'
@@ -51,6 +55,10 @@ export default function PlayerModal({
   const [playbackInfo, setPlaybackInfo] = useState(null)
   const [playbackError, setPlaybackError] = useState('')
   const [loadingPlayback, setLoadingPlayback] = useState(false)
+  // 续播：startTime 为 0（不是从截图等明确时间点进来）时查服务端播放记录。
+  const [resumeAt, setResumeAt] = useState(0)
+  const [resumeNotice, setResumeNotice] = useState(false)
+  const [resumeReady, setResumeReady] = useState(false)
   const [screenshotNotice, setScreenshotNotice] = useState(false)
   const [hotkeyHintVisible, setHotkeyHintVisible] = useState(false)
   const [subtitles, setSubtitles] = useState([])
@@ -250,8 +258,52 @@ export default function PlayerModal({
     }
   }, [video])
 
+  // 续播位置：只有在没有明确起播时间（startTime<=0）时才读服务端播放记录。
+  // 读记录期间不创建播放器，避免「先从 0 播、再跳回上次位置」的闪动。
+  const requestedStart = Math.max(0, Number(startTime) || 0)
   useEffect(() => {
-    if (loadingPlayback || !video || !videoContainerRef.current || !selectedSource?.src) return
+    setResumeAt(0)
+    setResumeNotice(false)
+    if (!video?.id) {
+      setResumeReady(false)
+      return undefined
+    }
+    if (requestedStart > 0) {
+      setResumeReady(true)
+      return undefined
+    }
+
+    let cancelled = false
+    setResumeReady(false)
+    fetchVideoPlayback(video.id)
+      .then((record) => {
+        if (cancelled) return
+        const seconds = resumeSecondsFrom(record)
+        if (seconds > 0) {
+          setResumeAt(seconds)
+          setResumeNotice(true)
+        }
+      })
+      // 读不到记录不影响播放（例如记录被清掉），直接从头发起。
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setResumeReady(true)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [video?.id, requestedStart])
+
+  useEffect(() => {
+    if (
+      loadingPlayback ||
+      !resumeReady ||
+      !video ||
+      !videoContainerRef.current ||
+      !selectedSource?.src
+    )
+      return
 
     // Video.js removes its element on dispose; let React own only the container.
     const videoElement = document.createElement('video-js')
@@ -394,11 +446,46 @@ export default function PlayerModal({
       }
     }
 
+    // 上报进度：每 5 秒一次、暂停时一次、关闭播放器时一次。
+    // 服务端按 video_id 只保留一条最新记录，所以频繁上报不会让数据无限增长。
+    // 失败只在控制台提示一次：以前静默吞掉异常，接口一旦不匹配就很难发现。
+    let reportFailureNotified = false
+    const reportProgress = () => {
+      const current = Number(player.currentTime())
+      if (!Number.isFinite(current) || current < 1) return
+      const duration = Number(player.duration())
+      reportVideoPlayback(video.id, {
+        positionSec: current,
+        durationSec: Number.isFinite(duration) ? duration : 0,
+        locationId: Number(video.location_id) || 0,
+      }).catch((error) => {
+        if (reportFailureNotified) return
+        reportFailureNotified = true
+        console.warn(zh('播放进度上报失败', 'Failed to report playback position'), error)
+      })
+    }
+    let reportTimer = null
+    let finished = false
+    const handleTimeUpdate = () => {
+      if (reportTimer !== null) return
+      reportTimer = window.setTimeout(() => {
+        reportTimer = null
+        reportProgress()
+      }, PLAYBACK_REPORT_INTERVAL_MS)
+    }
+    const handlePause = () => reportProgress()
+    // 看完了就清掉记录，下次进来从头播（与移动端一致）。
+    const handleEnded = () => {
+      finished = true
+      setResumeNotice(false)
+      clearVideoPlayback(video.id).catch(() => {})
+    }
+
     const stopPlayback = startBrowserPlayback(
       player,
       selectedSource,
       playbackInfo.sources.find((source) => source.kind === 'hls'),
-      startTime,
+      requestedStart || resumeAt,
       (error) => {
         const message = error.message || zh('视频播放失败', 'Video playback failed')
         setPlaybackError(message)
@@ -411,17 +498,43 @@ export default function PlayerModal({
     })
     player.on('fullscreenchange', focusPlayer)
     player.on('volumechange', handleVolumeChange)
+    player.on('timeupdate', handleTimeUpdate)
+    player.on('pause', handlePause)
+    player.on('ended', handleEnded)
 
     return () => {
+      if (reportTimer !== null) window.clearTimeout(reportTimer)
+      if (!finished) reportProgress()
       stopPlayback()
       window.removeEventListener('keydown', handleKeyDown, true)
       player.off('fullscreenchange', focusPlayer)
       player.off('volumechange', handleVolumeChange)
+      player.off('timeupdate', handleTimeUpdate)
+      player.off('pause', handlePause)
+      player.off('ended', handleEnded)
       removeSubtitleTracks()
       player.dispose()
       playerRef.current = null
     }
-  }, [video, startTime, selectedSource, playbackInfo, loadingPlayback, removeSubtitleTracks])
+  }, [
+    video,
+    requestedStart,
+    resumeAt,
+    resumeReady,
+    selectedSource,
+    playbackInfo,
+    loadingPlayback,
+    removeSubtitleTracks,
+  ])
+
+  // 「从头播放」：清掉服务端记录并回到开头，不重建播放器。
+  const handleRestartFromBeginning = useCallback(() => {
+    setResumeNotice(false)
+    setResumeAt(0)
+    if (video?.id) clearVideoPlayback(video.id).catch(() => {})
+    const player = playerRef.current
+    if (player && !player.isDisposed()) player.currentTime(0)
+  }, [video?.id])
 
   if (!video) return null
 
@@ -489,6 +602,24 @@ export default function PlayerModal({
                   ))}
                 </div>
               ) : null}
+            </div>
+          ) : null}
+          {/* 续播提示：仅在自动续播（而不是点了截图等指定时间点）时出现。 */}
+          {resumeNotice && requestedStart <= 0 ? (
+            <div className="absolute bottom-12 left-3 z-10 flex max-w-[calc(100%-1.5rem)] items-center gap-2 rounded bg-black/75 px-3 py-1.5 text-xs text-white shadow">
+              <span className="min-w-0 flex-1">
+                {zh(
+                  `已从上次位置 ${formatClock(resumeAt)} 续播`,
+                  `Resumed at ${formatClock(resumeAt)}`
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={handleRestartFromBeginning}
+                className="flex-none font-semibold underline hover:text-blue-300"
+              >
+                {zh('从头播放', 'Restart')}
+              </button>
             </div>
           ) : null}
           {loadingPlayback ? (

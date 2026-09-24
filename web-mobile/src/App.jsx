@@ -13,6 +13,7 @@ import JavIdolQuickChips from '@/components/JavIdolQuickChips'
 import JavListPage from '@/components/JavListPage'
 import JavQuickChips from '@/components/JavQuickChips'
 import JavTagSheet from '@/components/JavTagSheet'
+import PlaybackHistoryPage from '@/components/PlaybackHistoryPage'
 import PlayerPage from '@/components/PlayerPage'
 import QuickChips from '@/components/QuickChips'
 import RenamePage from '@/components/RenamePage'
@@ -99,6 +100,7 @@ export default function App() {
         <TopBar
           onOpenSearch={() => setSearchOpen(true)}
           onOpenSettings={() => useStore.getState().pushPage('me')}
+          onOpenHistory={() => useStore.getState().pushPage('playback-history')}
         />
       )}
 
@@ -237,6 +239,9 @@ export default function App() {
       ) : null}
       {topPage?.type === 'jav-idol' ? (
         <JavIdolPage idol={topPage.payload} onClose={() => useStore.getState().popPage()} />
+      ) : null}
+      {topPage?.type === 'playback-history' ? (
+        <PlaybackHistoryPage onClose={() => useStore.getState().popPage()} />
       ) : null}
 
       {topPage && isSettingsPage(topPage.type) ? (

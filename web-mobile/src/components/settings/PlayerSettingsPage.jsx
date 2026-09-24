@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
+import { clearAllPlayback, fetchPlaybackHistory } from '@/api'
 import Icon from '@/components/Icons'
 import SettingsPage from '@/components/settings/SettingsPage'
 import Switch from '@/components/form/Switch'
@@ -36,7 +37,8 @@ const PLAYER_LABELS = {
  * 这些键在手机上即使写了也没有任何效果，所以不显示 —— 但会明确说明它们在桌面端，
  * 而不是让用户以为功能被砍了。
  *
- * 真正对手机有意义的是「本机播放偏好」：续播开关与观看记录，它们只写 localStorage。
+ * 真正对手机有意义的是「本机播放偏好」：续播开关与观看记录。进度同时写
+ * localStorage（本机兜底）与服务端播放记录，清空时两端一起清。
  */
 export default function PlayerSettingsPage({ onClose }) {
   const config = useStore((state) => state.config)
@@ -46,7 +48,24 @@ export default function PlayerSettingsPage({ onClose }) {
   const [boost, setBoost] = useState(() => isBoostEnabled())
   const [boostRate, setBoostRate] = useState(() => readBoostSpeed())
   const [records, setRecords] = useState(() => countProgress())
+  const [serverRecords, setServerRecords] = useState(null)
   const [clearOpen, setClearOpen] = useState(false)
+  const [clearing, setClearing] = useState(false)
+
+  // 服务端播放记录条数（视频与 JAV 混排）：拉不到就显示「—」，不影响本机清空。
+  useEffect(() => {
+    let cancelled = false
+    fetchPlaybackHistory({ limit: 1 })
+      .then((data) => {
+        if (!cancelled) setServerRecords(data.total)
+      })
+      .catch(() => {
+        if (!cancelled) setServerRecords(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const browserOnly = configFlag(config, 'browser_playback_only')
   const mpvEnabled = configFlag(config, 'mpv_enabled')
@@ -65,11 +84,36 @@ export default function PlayerSettingsPage({ onClose }) {
     )
   }
 
-  const doClear = () => {
-    const removed = clearAllProgress()
-    setRecords(0)
-    setClearOpen(false)
-    showToast(zh(`已清除 ${removed} 条观看记录`, `Cleared ${removed} watch record(s)`))
+  const doClear = async () => {
+    if (clearing) return
+    setClearing(true)
+    try {
+      const removed = clearAllProgress()
+      setRecords(0)
+      let serverDeleted
+      try {
+        serverDeleted = await clearAllPlayback()
+        setServerRecords(0)
+      } catch {
+        // 服务端清除失败不回滚本机结果，提示用户稍后重试即可。
+        showToast(
+          zh(
+            '已清除本机记录，但服务端播放记录清除失败，可稍后重试',
+            'Local records cleared, but clearing server records failed; try again later'
+          )
+        )
+        return
+      }
+      showToast(
+        zh(
+          `已清除本机 ${removed} 条、服务端 ${serverDeleted} 条播放记录`,
+          `Cleared ${removed} local and ${serverDeleted} server record(s)`
+        )
+      )
+    } finally {
+      setClearing(false)
+      setClearOpen(false)
+    }
   }
 
   const toggleBoost = (next) => {
@@ -161,16 +205,20 @@ export default function PlayerSettingsPage({ onClose }) {
           label={zh('本机观看记录', 'Watch records on this device')}
           value={zh(`${records} 部`, `${records}`)}
         />
+        <InfoRow
+          label={zh('服务端播放记录', 'Server playback records')}
+          value={serverRecords === null ? '—' : zh(`${serverRecords} 条`, `${serverRecords}`)}
+        />
       </div>
 
       <div className="mx-3 mt-3">
         <button
           type="button"
-          disabled={records === 0}
+          disabled={records === 0 && !serverRecords}
           onClick={() => setClearOpen(true)}
           className={buttonClass('secondary', 'h-10 w-full')}
         >
-          {zh('清空观看记录', 'Clear watch records')}
+          {zh('清空播放记录', 'Clear playback records')}
         </button>
       </div>
 
@@ -211,13 +259,14 @@ export default function PlayerSettingsPage({ onClose }) {
 
       <ConfirmDialog
         open={clearOpen}
-        title={zh('清空本机观看记录？', 'Clear watch records?')}
+        title={zh('清空播放记录？', 'Clear playback records?')}
         description={zh(
-          '只会删除这台手机上保存的播放位置，服务端的播放次数与任何视频文件都不受影响。',
-          'This only removes playback positions stored on this phone. Server-side play counts and video files are untouched.'
+          '将删除这台手机上保存的播放位置和服务端的全部播放记录，播放次数与视频文件不受影响。',
+          'This removes playback positions stored on this phone and all server-side playback records. Play counts and video files are untouched.'
         )}
         confirmText={zh('清空', 'Clear')}
         danger
+        busy={clearing}
         onConfirm={doClear}
         onClose={() => setClearOpen(false)}
       />

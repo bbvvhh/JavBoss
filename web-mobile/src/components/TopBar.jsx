@@ -4,7 +4,7 @@ import { useStore } from '@/store'
 import { DENSITY_LABELS } from '@/utils/density'
 import { zh } from '@/utils/i18n'
 
-export default function TopBar({ onOpenSearch, onOpenSettings }) {
+export default function TopBar({ onOpenSearch, onOpenSettings, onOpenHistory }) {
   const view = useStore((state) => state.view)
   const setView = useStore((state) => state.setView)
   const total = useStore((state) => state.total)
@@ -60,6 +60,14 @@ export default function TopBar({ onOpenSearch, onOpenSettings }) {
         <span className="text-[11px] tabular-nums text-zinc-400">{total}</span>
       ) : null}
 
+      <button
+        type="button"
+        onClick={onOpenHistory}
+        aria-label={zh('播放记录', 'Playback history')}
+        className="grid h-[34px] w-[34px] place-items-center rounded-[10px] text-zinc-700 active:bg-zinc-100"
+      >
+        <Icon name="history" />
+      </button>
       <button
         type="button"
         onClick={isJav ? openJavDensitySheet : openDensitySheet}

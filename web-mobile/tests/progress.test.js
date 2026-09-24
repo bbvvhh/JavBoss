@@ -7,6 +7,7 @@ import {
   countProgress,
   isResumeEnabled,
   readProgress,
+  resumeSecondsFrom,
   setResumeEnabled,
   writeProgress,
   __progressInternals,
@@ -118,4 +119,14 @@ test('进度 key 使用固定前缀，避免和其它模块冲突', () => {
     writeProgress(31, 100)
     assert.equal(store.getItem(`${PREFIX}31`), '100')
   })
+})
+
+test('resumeSecondsFrom 只认服务端记录里越过片头阈值的进度', () => {
+  assert.equal(resumeSecondsFrom({ position_sec: MIN_RESUME_SECONDS }), MIN_RESUME_SECONDS)
+  assert.equal(resumeSecondsFrom({ position_sec: MIN_RESUME_SECONDS - 0.5 }), 0)
+  assert.equal(resumeSecondsFrom({ position_sec: 754.5 }), 754.5)
+  assert.equal(resumeSecondsFrom({ position_sec: '600' }), 600)
+  assert.equal(resumeSecondsFrom(null), 0)
+  assert.equal(resumeSecondsFrom({}), 0)
+  assert.equal(resumeSecondsFrom({ position_sec: 'abc' }), 0)
 })

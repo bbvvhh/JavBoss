@@ -5,15 +5,17 @@ import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import FavoriteBorderRoundedIcon from '@mui/icons-material/FavoriteBorderRounded'
 import FavoriteRoundedIcon from '@mui/icons-material/FavoriteRounded'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
+import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded'
 import SearchIcon from '@mui/icons-material/Search'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import ShuffleOutlinedIcon from '@mui/icons-material/ShuffleOutlined'
-import { Button, IconButton, Popper, Slider } from '@mui/material'
+import { Button, IconButton, Popper, Slider, Tooltip } from '@mui/material'
 import {
   formatIdolProfileFilterRange,
   IDOL_PROFILE_FILTER_DEFINITIONS,
   normalizeIdolProfileFilters,
 } from '@/constants/jav'
+import PlaybackHistoryPanel from '@/components/PlaybackHistoryPanel'
 import { zh } from '@/utils/i18n'
 
 const FAVORITE_MENU_RIGHT_SHIFT = 32
@@ -331,6 +333,7 @@ export default function TopBar({
   onSubmitSearch,
   onOpenSelectionOps,
   onClearSelection,
+  onPlayHistoryItem,
   searchHref,
   searchInput,
   selectedCount = 0,
@@ -338,7 +341,9 @@ export default function TopBar({
 }) {
   const headerRef = useRef(null)
   const favoriteMenuRef = useRef(null)
+  const historyMenuRef = useRef(null)
   const [favoriteMenuOpen, setFavoriteMenuOpen] = useState(false)
+  const [historyMenuOpen, setHistoryMenuOpen] = useState(false)
 
   const selectedFavoriteGroup = useMemo(() => {
     const selectedId = Number(selectedFavoriteGroupId)
@@ -387,15 +392,19 @@ export default function TopBar({
     }
   }, [])
 
+  // 收藏夹与播放记录两个浮层共用同一套「点外面 / ESC 关闭」处理。
   useEffect(() => {
-    if (!favoriteMenuOpen || favoriteManagerOpen) return undefined
+    if ((!favoriteMenuOpen && !historyMenuOpen) || favoriteManagerOpen) return undefined
     const handlePointerDown = (event) => {
       if (favoriteMenuRef.current?.contains(event.target)) return
+      if (historyMenuRef.current?.contains(event.target)) return
       setFavoriteMenuOpen(false)
+      setHistoryMenuOpen(false)
     }
     const handleKeyDown = (event) => {
       if (event.key !== 'Escape') return
       setFavoriteMenuOpen(false)
+      setHistoryMenuOpen(false)
     }
     document.addEventListener('mousedown', handlePointerDown)
     document.addEventListener('keydown', handleKeyDown)
@@ -403,7 +412,7 @@ export default function TopBar({
       document.removeEventListener('mousedown', handlePointerDown)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [favoriteManagerOpen, favoriteMenuOpen])
+  }, [favoriteManagerOpen, favoriteMenuOpen, historyMenuOpen])
 
   const activeSearchInput = isJavMode ? javSearchInput : searchInput
   const activeSearchHref = isJavMode ? javSearchHref : searchHref
@@ -550,6 +559,31 @@ export default function TopBar({
                 </Button>
               </div>
             ) : null}
+
+            {/* 播放记录入口：视频模块与 JAV 模块共用，点开后是按钮下方的小浮层。 */}
+            <div ref={historyMenuRef} className="relative">
+              <Tooltip title={zh('播放记录', 'Playback history')} placement="top">
+                <button
+                  type="button"
+                  className={`filter-action-button ${historyMenuOpen ? 'filter-action-button--active' : ''}`}
+                  onClick={() => setHistoryMenuOpen((open) => !open)}
+                  aria-label={zh('播放记录', 'Playback history')}
+                  aria-haspopup="dialog"
+                  aria-expanded={historyMenuOpen}
+                >
+                  <HistoryRoundedIcon fontSize="small" />
+                </button>
+              </Tooltip>
+              {historyMenuOpen ? (
+                <PlaybackHistoryPanel
+                  onClose={() => setHistoryMenuOpen(false)}
+                  onPlay={(item) => {
+                    setHistoryMenuOpen(false)
+                    onPlayHistoryItem?.(item)
+                  }}
+                />
+              ) : null}
+            </div>
 
             {isJavMode && !isJavDownload ? (
               <div ref={favoriteMenuRef} className="relative">

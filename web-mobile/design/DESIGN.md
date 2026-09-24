@@ -349,6 +349,7 @@ body: { "location_ids": [12, 34, 56] }
 ```
 /auth/status, /auth/login, /auth/logout, /auth/password
 /videos, /videos/{id}, /videos/{id}/thumbnail, /videos/{id}/streams, /videos/{id}/play(stats)
+/videos/{id}/playback, /playback/history       ← 播放记录，DB-only（列表展示与续播）
 /videos/{id}/screenshots, /videos/tags/*, /videos/{id}/cover, /videos/{id}/jav-scrape/*
 /videos/locations/hide                      ← 新增，DB-only
 PATCH /videos/{id}/locations/{locationId}   ← 重命名，仅重命名确认页可调用（见 §0.4）
@@ -375,6 +376,7 @@ PATCH /videos/{id}/locations/{locationId}   ← 重命名，仅重命名确认�
 | 搜索（历史、高亮、防抖） | 完整 | 顶栏展开式 |
 | 标签筛选 / 排序 | 完整 | chips + 底部抽屉 |
 | 浏览器播放 / 续播 / 连播 | 完整 | 复用 `selectPlaybackSource`，direct→HLS 回退 |
+| 播放记录（列表 / 续播） | 完整 | 服务端 SQLite 按 `video_id` 一条最新记录（视频与 JAV 混排）；本机 localStorage 进度仅作兜底 |
 | 标签 / 截图 / 封面 / 刮削 | 完整 | 只写数据库与 `data/` |
 | 多选批量操作 | 完整 | 含「移出媒体库」（DB-only） |
 | JAV 作品 / 女优 / 片商 / 系列 | 完整 | 浏览、详情、编辑、收藏夹、合并 |
