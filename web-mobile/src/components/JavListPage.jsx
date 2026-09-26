@@ -32,15 +32,14 @@ const FETCHERS = {
  * 次级导航：吸顶但不必常显 —— 下滑时收起，上滑时重新出现。
  * 主功能栏由 App 按当前子分类渲染（作品 / 女优各一套），始终可见。
  */
-function JavTabs({ value, onChange, total, loading, hidden }) {
-  // 吸顶偏移必须跟着第二行功能栏走：作品 / 女优页有（50 + 46px），片商 / 系列页
-  // 没有（App 按 javTab 决定渲染哪一套 chip）。仍然按 96px 吸顶会在顶上留出
-  // 一条空档，看起来像第二行还在。
-  const hasChips = value === 'works' || value === 'idols'
+function JavTabs({ value, onChange, total, loading, hidden, belowChips }) {
+  // 吸顶偏移必须跟着「第二行功能栏到底在不在」走：作品 / 女优页有（50 + 46px），
+  // 片商 / 系列页没有。以 `belowChips` 为准而不是按 javTab 推算 —— 打开搜索框时
+  // 功能栏同样不渲染，按 javTab 推算会在顶上留出一条看起来像功能栏还在的空档。
   return (
     <div
       className={`${
-        hasChips ? 'top-[96px]' : 'top-[50px]'
+        belowChips ? 'top-[96px]' : 'top-[50px]'
       } sticky z-[9] flex-none overflow-hidden border-b border-[#e6e8ec] bg-white/95 backdrop-blur-md transition-transform duration-200 ease-out`}
       style={{ transform: hidden ? 'translateY(-100%)' : 'translateY(0)' }}
       aria-hidden={hidden}
@@ -70,7 +69,7 @@ function JavTabs({ value, onChange, total, loading, hidden }) {
 }
 
 /** JAV 内容区。顶栏与功能栏由 App 渲染，这里只负责子分类行 + 网格。 */
-export default function JavListPage() {
+export default function JavListPage({ chipsVisible = false }) {
   const pushPage = useStore((state) => state.pushPage)
   const search = useStore((state) => state.searchTerm)
   const tab = useStore((state) => state.javTab)
@@ -232,7 +231,19 @@ export default function JavListPage() {
 
   return (
     <>
-      <JavTabs value={tab} onChange={setTab} total={total} loading={loading} hidden={tabsHidden} />
+      {/* 多选态下这一行也要收起来：多选是「顶栏换成选择栏 + 底部换成操作栏」的独立
+          模式，功能栏已经不在，子分类行还留着会既换不了分类（切走多选态就悬空了）
+          又在顶上留一条空档。 */}
+      {javSelectionMode ? null : (
+        <JavTabs
+          value={tab}
+          onChange={setTab}
+          total={total}
+          loading={loading}
+          hidden={tabsHidden}
+          belowChips={chipsVisible}
+        />
+      )}
 
       {search ? (
         <div className="flex items-center gap-2 border-b border-[#e6e8ec] bg-white px-3 py-2 text-[12px] text-zinc-500">

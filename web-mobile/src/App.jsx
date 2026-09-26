@@ -125,6 +125,11 @@ export default function App() {
   // JAV 作品多选只在「作品」子分类下成立：女优 / 片商 / 系列没有批量操作。
   const javSelectionAlive = javSelectionMode && view === 'jav' && javTab === 'works'
   const javSelectedIdList = Array.from(javSelectedIds)
+  // 第二行功能栏是否渲染：多选态由选择栏接管，搜索态由搜索栏接管，两者都不渲染功能栏。
+  const quickChipsVisible = !selectionMode && !javSelectionAlive && !searchOpen
+  // 子分类行的吸顶偏移要看功能栏到底占没占位置，差 46px 就会在顶上留一条空档。
+  const javChipsVisible =
+    quickChipsVisible && view === 'jav' && (javTab === 'works' || javTab === 'idols')
 
   /**
    * 「JAV 标签」：标签最终打在作品上，所以要先把所选视频关联的作品 id 取出来。
@@ -164,7 +169,7 @@ export default function App() {
         />
       )}
 
-      {!selectionMode && !javSelectionAlive && !searchOpen ? (
+      {quickChipsVisible ? (
         view === 'jav' ? (
           javTab === 'works' ? (
             <JavQuickChips
@@ -239,7 +244,7 @@ export default function App() {
           </main>
         </>
       ) : (
-        <JavListPage />
+        <JavListPage chipsVisible={javChipsVisible} />
       )}
 
       {selectionMode && view === 'video' ? (

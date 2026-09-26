@@ -145,3 +145,20 @@ test('批量抽屉只从 api.js 引入追加式的两个接口', () => {
   assert.ok(!sheetsSource.includes('replaceJavTagsForItems'), '不得使用覆盖式标签替换')
   assert.ok(!sheetsSource.includes('replaceJavFavoriteGroups'), '收藏夹也不允许覆盖式写入')
 })
+
+test('作品多选时收起子分类行，吸顶偏移按功能栏在不在算', () => {
+  const srcDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
+  const readSource = (...parts) => readFileSync(join(srcDir, ...parts), 'utf8')
+
+  // 多选态里功能栏已经不渲染了，子分类行还留着会在顶上留一条空档，而且它本来就是
+  // 多选态里唯一还能切走分类的入口（切走多选态就悬空了）。
+  const list = readSource('components', 'JavListPage.jsx')
+  assert.ok(list.includes('javSelectionMode ? null : ('), '多选态不渲染子分类行')
+  assert.ok(list.includes("belowChips ? 'top-[96px]' : 'top-[50px]'"), '吸顶偏移要按功能栏算')
+  assert.ok(list.includes('belowChips={chipsVisible}'), '子分类行要拿到功能栏的实际状态')
+
+  // 打开搜索框时功能栏同样不渲染，偏移也得跟着变成 50px，所以以 App 的判断为准。
+  const app = readSource('App.jsx')
+  assert.ok(app.includes('const quickChipsVisible ='), '功能栏是否渲染要有唯一来源')
+  assert.ok(app.includes('chipsVisible={javChipsVisible}'), 'App 要把功能栏的状态传给列表页')
+})
