@@ -150,3 +150,18 @@ test('IdolCover 与列表页都接了起点参数，编辑结果三处一致', (
   const list = readSource('components', 'JavListPage.jsx')
   assert.ok(list.includes('cropLeft={idol.cover_crop_left}'), '列表卡片也要按存的起点裁切')
 })
+
+test('封面来源列表吸顶，吸顶栏里带当前封面的小图与番号', () => {
+  const source = readSource('components', 'IdolCoverEditorPage.jsx')
+  // 滚到列表里挑来源时上面那块大预览已经出屏，标题栏要吸顶兜住「当前选的是哪张」。
+  // SubPage 的滚动容器是内层 div（顶栏是 flex 兄弟节点），所以是 top-0 而不是 top-50px。
+  assert.ok(source.includes('sticky top-0'), '封面来源标题栏要吸顶')
+  // 小图用源图 800×538 的纵横比：这里要认的是「哪一张封面」，不是裁切窗口。
+  assert.ok(source.includes('IDOL_COVER_SOURCE_WIDTH'), '小图按源图纵横比布局')
+  // 与大图共用同一个失败标记，否则大图已提示「封面待下载」时小图还留一个空框。
+  assert.equal(
+    source.split('onError={() => setImageFailed(true)}').length - 1,
+    2,
+    '大图与吸顶小图共用同一个加载失败标记'
+  )
+})

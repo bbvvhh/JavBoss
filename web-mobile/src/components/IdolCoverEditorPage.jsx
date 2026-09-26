@@ -7,6 +7,8 @@ import { useStore } from '@/store'
 import { getErrorMessage } from '@/utils/errors'
 import {
   IDOL_COVER_DEFAULT_CROP_LEFT,
+  IDOL_COVER_SOURCE_HEIGHT,
+  IDOL_COVER_SOURCE_WIDTH,
   IDOL_COVER_VISIBLE_RATIO,
   coverImageStyle,
   normalizeDynamicCropLeft,
@@ -277,11 +279,27 @@ export default function IdolCoverEditorPage({ idol, onClose }) {
       </section>
 
       <section className="mt-3 bg-white pb-6">
-        <div className="flex items-center gap-2 border-b border-[#f1f2f5] px-3.5 py-2.5">
-          <b className="text-[12.5px] text-zinc-700">{zh('封面来源', 'Cover source')}</b>
-          <span className="text-[11px] text-zinc-400">
-            {zh('选这部作品的封面', 'Pick one of her works')}
-          </span>
+        {/* 滚到列表里挑来源时，上面那块大预览已经出屏了 —— 标题栏吸顶，并带上当前
+            选中封面的缩略图与番号，选谁都能立刻确认，不用来回滚。
+            这里放的是 800×538 的全图而不是裁切小样：要认的是「哪一张封面」，
+            裁切结果上面已经有一份小样了。 */}
+        <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-[#f1f2f5] bg-white px-3.5 py-2">
+          <b className="flex-none text-[12.5px] text-zinc-700">{zh('封面来源', 'Cover source')}</b>
+          <div className="ml-auto flex flex-none items-center gap-2">
+            {hasPreview ? (
+              <img
+                src={`/jav/${encodeURIComponent(previewCode)}/cover`}
+                alt=""
+                aria-hidden="true"
+                onError={() => setImageFailed(true)}
+                className="h-10 flex-none rounded bg-zinc-100 object-cover"
+                style={{ aspectRatio: `${IDOL_COVER_SOURCE_WIDTH} / ${IDOL_COVER_SOURCE_HEIGHT}` }}
+              />
+            ) : null}
+            <span className="max-w-[140px] truncate text-[11px] text-zinc-600">
+              {previewCode || zh('无封面', 'No cover')}
+            </span>
+          </div>
         </div>
 
         <button
