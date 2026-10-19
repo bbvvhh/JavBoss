@@ -71,16 +71,44 @@ function JumpRow({ label, value, onClick }) {
   )
 }
 
+/** 单颗星的填充量：0 = 空星，0.5 = 半星，1 = 满星（rating 已被约束到 0.5 步进）。 */
+function starFillLevel(rating, star) {
+  const amount = Math.max(0, Math.min(1, rating - (star - 1)))
+  if (amount >= 1) return 1
+  if (amount >= 0.5) return 0.5
+  return 0
+}
+
+/** 用「描边空星打底 + 实心星按比例裁切」拼出半星，省掉一个独立图标。 */
+function StarGlyph({ fill, size = 22 }) {
+  return (
+    <span className="relative inline-flex" style={{ width: size, height: size }}>
+      <Icon name="star" size={size} className="text-zinc-300" />
+      {fill > 0 ? (
+        <span
+          className="absolute inset-y-0 left-0 flex overflow-hidden"
+          style={{ width: size * fill }}
+        >
+          <Icon name="starFilled" size={size} className="text-amber-400" />
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
 /**
  * 喜爱度打分。
  *
- * 值是 0–5、允许 0.5 步进（后端校验见 internal/db/jav.go），但移动端不做
- * 半星拖拽 —— 点第 N 颗星 = N 分，再点同一颗 = 清零。既简单又避免了
- * 手指在窄屏上分辨半颗星的麻烦。
+ * 值是 0–5、0.5 一档（后端校验见 internal/db/jav.go）。每颗星左右各半个
+ * 点击区：点左半边给半星（如 3.5），点右半边给整星（如 4），再点当前
+ * 同值清零。
  */
 function FavoriteRating({ value, saving, onChange }) {
   const rating = Number(value) || 0
-  const filled = Math.round(rating)
+  const commit = (next) => {
+    if (saving) return
+    onChange(rating === next ? 0 : next)
+  }
   return (
     <div className="mt-2.5 rounded-card border border-[#e6e8ec] bg-white px-3.5 py-3">
       <div className="flex items-center gap-2">
@@ -89,27 +117,28 @@ function FavoriteRating({ value, saving, onChange }) {
           {saving ? zh('保存中…', 'Saving...') : rating > 0 ? rating.toFixed(1) : '—'}
         </span>
       </div>
-      <div className="mt-2 flex items-center gap-1">
-        {[1, 2, 3, 4, 5].map((star) => {
-          const active = star <= filled
-          return (
+      <div className={`mt-2 flex items-center gap-1 ${saving ? 'opacity-60' : ''}`}>
+        {[1, 2, 3, 4, 5].map((star) => (
+          <div key={star} className="relative grid h-9 w-9 place-items-center">
+            <StarGlyph fill={starFillLevel(rating, star)} />
             <button
-              key={star}
               type="button"
               disabled={saving}
-              onClick={() => onChange(rating === star ? 0 : star)}
+              onClick={() => commit(star - 0.5)}
+              aria-label={zh(`${star - 0.5} 分`, `${star - 0.5} point`)}
+              aria-pressed={rating === star - 0.5}
+              className="absolute inset-y-0 left-0 w-1/2 rounded-l-lg active:bg-zinc-100"
+            />
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => commit(star)}
               aria-label={zh(`${star} 分`, `${star} point`)}
-              aria-pressed={active}
-              className="grid h-9 w-9 place-items-center rounded-lg active:bg-zinc-100 disabled:opacity-60"
-            >
-              <Icon
-                name={active ? 'starFilled' : 'star'}
-                size={22}
-                className={active ? 'text-amber-400' : 'text-zinc-300'}
-              />
-            </button>
-          )
-        })}
+              aria-pressed={rating === star}
+              className="absolute inset-y-0 right-0 w-1/2 rounded-r-lg active:bg-zinc-100"
+            />
+          </div>
+        ))}
         {rating > 0 ? (
           <button
             type="button"
@@ -533,7 +562,7 @@ export function JavIdolPage({ idol, onClose }) {
   const [worksLoading, setWorksLoading] = useState(true)
   const [favoriteCount, setFavoriteCount] = useState(() => Number(idol?.favorite_count) || 0)
   const [favoriteOpen, setFavoriteOpen] = useState(false)
-  // 喜爱度：与作品详情页完全一致的交互（点第 N 颗星 = N 分，再点同值清零）。
+  // 喜爱度：与作品详情页完全一致的交互（星左右半边 = 0.5 步进，再点同值清零）。
   const [rating, setRating] = useState(() => Number(idol?.favorite_rating) || 0)
   const [ratingSaving, setRatingSaving] = useState(false)
   const [ratingError, setRatingError] = useState('')
