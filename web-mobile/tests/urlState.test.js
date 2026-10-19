@@ -53,7 +53,6 @@ test('空地址栏：所有项都当成「没写」，不会覆盖设置里的�
   assert.equal(parsed.video.sort, '')
   assert.equal(parsed.video.hideJav, null, '三态：没写不能等于 false')
   assert.equal(parsed.video.random, false)
-  assert.equal(parsed.video.seed, null)
   assert.equal(parsed.jav.tab, null)
   assert.equal(parsed.jav.sort, '')
   assert.equal(parsed.jav.idolSort, '')
@@ -62,19 +61,18 @@ test('空地址栏：所有项都当成「没写」，不会覆盖设置里的�
   assert.deepEqual(urlStatePatch(parsed), {}, '默认设置（初始视图 / 默认随机）要原样留住')
 })
 
-test('非法值一律丢弃：排序、隐藏 JAV、种子、tab 都不许把脏数据带进 store', () => {
-  const parsed = parseUrlState('?view=jelly&tab=videos&sort=zzz&hide_jav=maybe&random=1&seed=-5')
+test('非法值一律丢弃：排序、隐藏 JAV、tab 都不许把脏数据带进 store', () => {
+  const parsed = parseUrlState('?view=jelly&tab=videos&sort=zzz&hide_jav=maybe&random=1')
   assert.equal(parsed.view, null, '不认识的视图保持设置里的初始模式')
   assert.equal(parsed.jav.tab, null)
   assert.equal(parsed.video.sort, '')
   assert.equal(parsed.video.hideJav, null)
   assert.equal(parsed.video.random, true)
-  assert.equal(parsed.video.seed, null, '非法种子交给上层现摇一个')
 
   const patch = urlStatePatch(parsed)
   assert.equal('sort' in patch, false)
   assert.equal('hideJav' in patch, false)
-  assert.ok(patch.randomSeed > 0 && patch.randomSeed <= 2147483646, '缺种子时要补一个合法种子')
+  assert.ok(patch.randomSeed > 0 && patch.randomSeed <= 2147483646, '进随机时要补一个合法种子')
 })
 
 test('视频：标签按名字逐个写、可重复，隐藏 JAV 与排序都在 URL 里', () => {
@@ -104,16 +102,31 @@ test('视频：标签按名字逐个写、可重复，隐藏 JAV 与排序都在
   assert.equal(parsed.jav.sort, '', '视频的排序不能串到 JAV 作品页')
 })
 
-test('随机模式：URL 记种子而不记排序，刷新后还是同一屏随机结果', () => {
+test('随机模式：URL 只记随机标记不记种子，复原现货一个新种子（重启 / 刷新不再复用上一屏）', () => {
   const url = buildUrlFromState(baseState({ randomSeed: 987654, sort: 'duration' }), '/')
   const query = queryOf(url)
   assert.equal(query.random, '1')
-  assert.equal(query.seed, '987654')
+  assert.equal(query.seed, undefined, '不写种子，否则重启 / 刷新会一直看到同一屏')
   assert.equal(query.sort, undefined, '随机模式下排序由种子决定，写了反而误导')
 
   const patch = urlStatePatch(parseUrlState(url.slice(url.indexOf('?'))))
-  assert.deepEqual(patch, { view: 'video', randomSeed: 987654, hideJav: false })
-  assert.equal('javRandomSeed' in patch, false, '视频的随机种子不能带到作品页')
+  assert.equal('javRandomSeed' in patch, false, '视频的随机标记不能带到作品页')
+  assert.ok(
+    patch.randomSeed > 0 && patch.randomSeed <= 2147483646,
+    '每次按 URL 复原随机都要现摇一个新种子'
+  )
+})
+
+test('JAV 作品随机同样只记标记，进页面现摇种子', () => {
+  const url = buildUrlFromState(baseState({ view: 'jav', javRandomSeed: 13579 }), '/')
+  const query = queryOf(url)
+  assert.equal(query.random, '1')
+  assert.equal(query.seed, undefined)
+  assert.equal(query.sort, undefined)
+
+  const patch = urlStatePatch(parseUrlState(url.slice(url.indexOf('?'))))
+  assert.equal('randomSeed' in patch, false, '作品页的随机标记不能串到视频页')
+  assert.ok(patch.javRandomSeed > 0 && patch.javRandomSeed <= 2147483646)
 })
 
 test('JAV 作品：筛选条件往返一致，studio / 系列 / 收藏夹都带上名字用于回显', () => {

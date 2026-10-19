@@ -8,8 +8,10 @@
  * 约定：
  *   - **只写当前视图的参数**（和 PC 端 `buildUrlFromState` 一致）。切视图时另一个
  *     视图的条件本来也留在 store 里，URL 不必替它记一份，键名也就不会打架。
- *   - 排序 / 喜爱度 / 随机种子这些值都要先归一化再落地：URL 是可以手改的，
- *     非法值一律当作「没写」，由设置里的默认值兜底。
+ *   - 排序 / 喜爱度这些值都要先归一化再落地：URL 是可以手改的，非法值一律当作
+ *     「没写」，由设置里的默认值兜底。
+ *   - 随机模式只在 URL 里记 `random=1`，**不记种子**：种子是本次展示用的临时量，
+ *     记下来会让「重启程序 / 刷新」永远复用上一次的那一屏，随机就名不副实了。
  */
 
 import {
@@ -26,15 +28,9 @@ const RANDOM_SEED_MAX = 2147483646
 
 export const JAV_TAB_VALUES = ['works', 'idols', 'studios', 'series']
 
-/** 随机模式的种子：与 store 里 `nextRandomSeed` 同一套取值，URL 里缺种子时现摇一个。 */
+/** 随机模式的种子：与 store 里 `nextRandomSeed` 同一套取值，每次进随机现摇一个。 */
 export function generateRandomSeed() {
   return Math.floor(Math.random() * RANDOM_SEED_MAX) + 1
-}
-
-function clampSeed(raw) {
-  const value = Number(raw)
-  if (!Number.isFinite(value) || value <= 0) return null
-  return Math.min(Math.floor(value), RANDOM_SEED_MAX)
 }
 
 /** 字符串或数组 → 去重后的正整数 id 列表。 */
@@ -160,13 +156,12 @@ export function parseUrlState(searchString = '') {
   const rawView = sp.get('view')
   const view = rawView === 'jav' || rawView === 'video' ? rawView : null
   const rawTab = String(sp.get('tab') ?? '').trim()
-  // `sort` / `random` / `seed` 是**共用键名**，但只属于 URL 里那个视图：视频的
+  // `sort` / `random` 是**共用键名**，但只属于 URL 里那个视图：视频的
   // `play_count_asc` 恰好也是合法的 JAV 排序值，两边都读会让切到 JAV 后排序串味
-  // （随机种子同理会把视频的随机带到作品页）。
+  // （随机标记同理会把视频的随机带到作品页）。
   const isJav = view === 'jav'
   const rawSort = parseText(sp.get('sort'))
   const random = sp.get('random') === '1'
-  const seed = clampSeed(sp.get('seed'))
 
   return {
     view,
@@ -176,14 +171,12 @@ export function parseUrlState(searchString = '') {
       sort: isJav ? '' : normalizeVideoSort(rawSort, ''),
       hideJav: parseFlag(sp.get('hide_jav')),
       random: isJav ? false : random,
-      seed: isJav ? null : seed,
     },
     jav: {
       tab: JAV_TAB_VALUES.includes(rawTab) ? rawTab : null,
       sort: isJav ? normalizeJavSort(rawSort, '') : '',
       idolSort: normalizeIdolSort(parseText(sp.get('idol_sort')), ''),
       random: isJav ? random : false,
-      seed: isJav ? seed : null,
       filters: parseJavFilters(sp),
       idolProfileFilters: parseIdolProfileFilters(sp),
       idolRatingFilter: parseIdolRatingFilter(sp),
@@ -254,10 +247,8 @@ export function buildUrlFromState(state, basePath = '') {
     if (tab !== 'works') sp.set('tab', tab)
     if (tab === 'works') {
       appendJavFilters(sp, state?.javFilters)
-      const javSeed = clampSeed(state?.javRandomSeed)
-      if (javSeed) {
+      if (state?.javRandomSeed) {
         sp.set('random', '1')
-        sp.set('seed', String(javSeed))
       } else {
         sp.set('sort', normalizeJavSort(state?.javSort, 'recent'))
       }
@@ -269,10 +260,8 @@ export function buildUrlFromState(state, basePath = '') {
   } else {
     for (const tag of toTagNames(state?.selectedTags)) sp.append('tags', tag)
     sp.set('hide_jav', state?.hideJav ? '1' : '0')
-    const seed = clampSeed(state?.randomSeed)
-    if (seed) {
+    if (state?.randomSeed) {
       sp.set('random', '1')
-      sp.set('seed', String(seed))
     } else {
       sp.set('sort', normalizeVideoSort(state?.sort, 'recent'))
     }
@@ -302,11 +291,12 @@ export function urlStatePatch(parsed) {
   if (video.tags?.length) patch.selectedTags = video.tags
   if (video.sort) patch.sort = video.sort
   if (video.hideJav !== null && video.hideJav !== undefined) patch.hideJav = video.hideJav
-  if (video.random) patch.randomSeed = video.seed || generateRandomSeed()
+  // URL 只表达「要随机」，种子每次进页面现摇一个：复用上一屏的种子会让随机变成固定顺序。
+  if (video.random) patch.randomSeed = generateRandomSeed()
 
   if (jav.tab) patch.javTab = jav.tab
   if (jav.sort) patch.javSort = jav.sort
-  if (jav.random) patch.javRandomSeed = jav.seed || generateRandomSeed()
+  if (jav.random) patch.javRandomSeed = generateRandomSeed()
   if (jav.idolSort) patch.idolSort = jav.idolSort
   if (jav.filters && Object.keys(jav.filters).length) {
     patch.javFilters = { ...EMPTY_JAV_FILTERS, ...jav.filters }
