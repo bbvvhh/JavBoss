@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
-import { fetchJavs, updateJavIdol, updateJavItem } from '@/api'
+import { deleteVideoLocation, fetchJavs, updateJavIdol, updateJavItem } from '@/api'
+import ConfirmDialog from '@/components/ConfirmDialog'
 import Icon from '@/components/Icons'
 import IdolCover from '@/components/IdolCover'
 import JavActorPickerSheet from '@/components/JavActorPickerSheet'
@@ -137,7 +138,10 @@ export function JavDetailPage({ jav, onClose }) {
   const patchJavItem = useStore((state) => state.patchJavItem)
 
   const javId = Number(jav?.id) || 0
-  const localVideos = Array.isArray(jav?.videos) ? jav.videos : []
+  // 本地文件列表用 state 承载：删除某个文件后可以立即从界面移除，
+  // 同时通过 patchJavItem 把结果同步到列表卡片。
+  const [videos, setVideos] = useState(() => (Array.isArray(jav?.videos) ? jav.videos : []))
+  const localVideos = videos
   const tags = (jav?.tags || []).map((tag) => tag.name).filter(Boolean)
 
   // 演员可以在本页编辑（见 JavActorPickerSheet），所以用本地 state 承载，
@@ -151,6 +155,8 @@ export function JavDetailPage({ jav, onClose }) {
   const [favoriteCount, setFavoriteCount] = useState(() => Number(jav?.favorite_count) || 0)
   const [favoriteOpen, setFavoriteOpen] = useState(false)
   const [actionError, setActionError] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
 
   // 每次压入新作品都重新取一次，避免复用到上一条的状态。
   useEffect(() => {
@@ -159,7 +165,47 @@ export function JavDetailPage({ jav, onClose }) {
     setRating(Number(jav?.favorite_rating) || 0)
     setFavoriteCount(Number(jav?.favorite_count) || 0)
     setActionError('')
+    setDeleteTarget(null)
+    setDeleteBusy(false)
+    setVideos(Array.isArray(jav?.videos) ? jav.videos : [])
   }, [jav])
+
+  // 删除单个本地文件：必须经过 ConfirmDialog（danger + 勾选确认）二次确认。
+  const confirmDeleteFile = async () => {
+    const target = deleteTarget
+    if (!target || deleteBusy) return
+    const locationId = Number(target.location_id)
+    const videoId = Number(target.id)
+    if (
+      !Number.isFinite(locationId) ||
+      locationId <= 0 ||
+      !Number.isFinite(videoId) ||
+      videoId <= 0
+    ) {
+      setActionError(
+        zh(
+          '该文件缺少必要标识，无法删除',
+          'This file is missing an identifier and cannot be deleted'
+        )
+      )
+      setDeleteTarget(null)
+      return
+    }
+    setDeleteBusy(true)
+    setActionError('')
+    try {
+      await deleteVideoLocation(videoId, locationId)
+      const remaining = localVideos.filter((item) => Number(item.location_id) !== locationId)
+      setVideos(remaining)
+      patchJavItem(javId, { videos: remaining })
+      showToast(zh('文件已删除', 'File deleted'))
+      setDeleteTarget(null)
+    } catch (error) {
+      setActionError(getErrorMessage(error))
+    } finally {
+      setDeleteBusy(false)
+    }
+  }
 
   const changeRating = async (next) => {
     if (!javId || ratingSaving) return
@@ -380,11 +426,24 @@ export function JavDetailPage({ jav, onClose }) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => openActionSheet(video)}
+                  onClick={() =>
+                    openActionSheet(video, {
+                      canDelete: true,
+                      onDelete: () => setDeleteTarget(video),
+                    })
+                  }
                   aria-label={zh('更多操作', 'More actions')}
                   className="grid h-9 w-9 flex-none place-items-center rounded-lg text-zinc-500 active:bg-zinc-100"
                 >
                   <Icon name="more" size={17} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeleteTarget(video)}
+                  aria-label={zh('删除文件', 'Delete file')}
+                  className="grid h-9 w-9 flex-none place-items-center rounded-lg text-red-500 active:bg-red-50"
+                >
+                  <Icon name="trash" size={17} />
                 </button>
               </div>
             )
@@ -411,10 +470,31 @@ export function JavDetailPage({ jav, onClose }) {
 
       <p className="px-3.5 pb-10 pt-4 text-[11px] leading-relaxed text-zinc-400">
         {zh(
-          '详情页只展示与编辑数据库中的元数据；如需修改本地文件，请回到视频列表使用「重命名文件」。',
-          'This page only reads and edits metadata. Use “Rename file” in the video list to touch local files.'
+          '删除库内文件属于不可恢复的高风险操作，删除前会再次确认；如需重命名文件，请回到视频列表使用「重命名文件」。',
+          'Deleting a local file is irreversible and requires an extra confirmation. To rename a file, use “Rename file” in the video list.'
         )}
       </p>
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        danger
+        busy={deleteBusy}
+        title={zh('删除本地文件', 'Delete local file')}
+        description={zh(
+          '将从磁盘删除该文件，并从数据库移除这条文件位置记录，此操作不可撤销。',
+          'This removes the file from disk and deletes its location record. It cannot be undone.'
+        )}
+        items={
+          deleteTarget
+            ? [deleteTarget.filename || deleteTarget.path || deleteTarget.location_id]
+            : []
+        }
+        confirmText={zh('删除', 'Delete')}
+        onConfirm={confirmDeleteFile}
+        onClose={() => {
+          if (!deleteBusy) setDeleteTarget(null)
+        }}
+      />
 
       <JavActorPickerSheet
         open={actorPickerOpen}

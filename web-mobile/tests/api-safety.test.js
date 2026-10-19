@@ -13,6 +13,9 @@ const apiSource = stripComments(apiSourceRaw)
 /** 唯一允许调用重命名的文件（相对 src/ 的 POSIX 路径）。 */
 const RENAME_CALL_SITE = 'components/RenamePage.jsx'
 
+/** 唯一允许调用单个文件删除的文件（相对 src/ 的 POSIX 路径）。 */
+const DELETE_CALL_SITE = 'components/JavDetailPage.jsx'
+
 /**
  * 去掉注释但保留字符串内容，这样「文档里提到被封禁的接口」不会被误判，
  * 而真实代码里的字符串仍然会被扫描到。
@@ -117,11 +120,11 @@ export function isMediaLocationResource(path) {
 }
 
 /**
- * 用户明确要求：任何时候不允许删除视频文件。
+ * 视频文件位置的写操作只允许两个受控接口：重命名（PATCH）和单文件删除（DELETE）。
+ * 二者都必须有显式二次确认，且各自的调用点被单独测试锁定。
  * 这个判定是整个移动端的最后防线，所以它本身也被测试覆盖。
  */
 export function classifyRoute(method, path) {
-  const m = String(method || '').toUpperCase()
   const p = String(path || '')
 
   if (p.includes('/process')) {
@@ -129,9 +132,6 @@ export function classifyRoute(method, path) {
   }
   if (p.includes('/videos/open')) return { allowed: false, reason: '桌面端能力，移动端无意义' }
   if (p.includes('/videos/reveal')) return { allowed: false, reason: '桌面端能力，移动端无意义' }
-  if (m === 'DELETE' && isMediaLocationResource(p)) {
-    return { allowed: false, reason: '会物理删除视频文件（Linux/macOS 上是 os.Remove）' }
-  }
   return { allowed: true }
 }
 
@@ -158,8 +158,8 @@ test('api.js 保留安全哨兵注释，防止被整体替换后失去约束', (
     'src/api.js 必须保留 @api-safety-guard 注释块'
   )
   assert.ok(
-    apiSourceRaw.includes('任何时候不允许删除视频文件'),
-    'src/api.js 必须写明禁止删除视频文件的原因'
+    apiSourceRaw.includes('删除视频文件属于高风险操作'),
+    'src/api.js 必须写明删除视频文件的风险与受控调用点'
   )
 })
 
@@ -178,22 +178,32 @@ test('api.js 不含任何被封禁的接口', () => {
   }
 })
 
-test('api.js 里触碰视频文件位置的接口有且仅有受控的重命名', () => {
+test('api.js 里触碰视频文件位置的接口仅有两个受控接口（重命名 + 删除）', () => {
   const locationRoutes = extractRoutes(apiSource).filter((route) =>
     isMediaLocationResource(route.path)
   )
   assert.equal(
     locationRoutes.length,
-    1,
-    `只允许一个受控接口，实际发现 ${locationRoutes.length} 个：` +
+    2,
+    `只允许重命名与删除两个受控接口，实际发现 ${locationRoutes.length} 个：` +
       locationRoutes.map((r) => `${r.method} ${r.path}`).join(', ')
   )
-  const [route] = locationRoutes
-  assert.equal(route.method, 'PATCH', '重命名必须是 PATCH，DELETE 会删文件')
-  assert.match(
-    route.path,
-    /^\/videos\/\$\{[^}]+\}\/locations\/\$\{[^}]+\}$/,
-    `重命名路由形状必须精确到单个 location，实际是 ${route.path}`
+  for (const route of locationRoutes) {
+    assert.ok(
+      ['PATCH', 'DELETE'].includes(route.method),
+      `受控接口只允许 PATCH / DELETE，实际是 ${route.method}`
+    )
+    assert.match(
+      route.path,
+      /^\/videos\/\$\{[^}]+\}\/locations\/\$\{[^}]+\}$/,
+      `路由形状必须精确到单个 location，实际是 ${route.path}`
+    )
+  }
+  assert.deepEqual(
+    locationRoutes.map((route) => route.method).sort(),
+    ['DELETE', 'PATCH'],
+    `受控接口应恰好为 PATCH 重命名与 DELETE 删除：` +
+      locationRoutes.map((r) => `${r.method} ${r.path}`).join(', ')
   )
 })
 
@@ -209,6 +219,22 @@ test('renameVideoLocation 只能被 RenamePage.jsx 调用', () => {
     callers.sort(),
     [RENAME_CALL_SITE],
     `renameVideoLocation 是唯一会写媒体目录的接口，只允许 ${RENAME_CALL_SITE} 引用；` +
+      `实际引用者：${callers.join(', ') || '（无）'}`
+  )
+})
+
+test('deleteVideoLocation 只能被 JavDetailPage.jsx 调用', () => {
+  const callers = []
+  for (const file of sourceFiles(srcDir)) {
+    const rel = relative(srcDir, file).replace(/\\/g, '/')
+    if (rel === 'api.js') continue
+    const source = stripComments(readFileSync(file, 'utf8'))
+    if (/\bdeleteVideoLocation\b/.test(source)) callers.push(rel)
+  }
+  assert.deepEqual(
+    callers.sort(),
+    [DELETE_CALL_SITE],
+    `deleteVideoLocation 属于高风险操作，只允许 ${DELETE_CALL_SITE} 引用；` +
       `实际引用者：${callers.join(', ') || '（无）'}`
   )
 })
@@ -231,7 +257,6 @@ test('整个 src/ 不出现封禁字符串，也不绕过 api.js 直接 fetch', 
 
 test('classifyRoute 判定符合预期（防回归）', () => {
   const forbidden = [
-    ['DELETE', '/videos/1/locations/2'],
     ['POST', '/directories/3/process'],
     ['POST', '/videos/open'],
     ['POST', '/videos/reveal'],
@@ -247,6 +272,7 @@ test('classifyRoute 判定符合预期（防回归）', () => {
     ['POST', '/videos/tags/add'],
     ['POST', '/videos/locations/hide'],
     ['PATCH', '/videos/1/locations/2'],
+    ['DELETE', '/videos/1/locations/2'],
     ['DELETE', '/videos/1/screenshots/mpv_00-01-02.jpg'],
     ['POST', '/directories/3/scan'],
     ['DELETE', '/tags/9'],

@@ -8,15 +8,18 @@
  *   2. 只写数据库的请求（标签、收藏、刮削元数据、从媒体库移除）
  *   3. 只写 JavBoss 自有 data/ 目录的请求（缩略图、截图、封面）
  *
- * 绝对禁止（会让用户丢失视频文件，用户明确要求「任何时候不允许删除视频文件」）：
- *   - DELETE /videos/:id/locations/:locationId   在 Linux/macOS 上是 os.Remove，永久删除
+ * 绝对禁止：
  *   - POST   /directories/:id/process            目录整理，内部含 os.Remove / os.Rename
  *   - POST   /videos/open, /videos/reveal        桌面端能力，移动端无意义
  *
- * 唯一允许触碰用户媒体目录的接口是「重命名文件」：
- *   PATCH /videos/:id/locations/:locationId   → renameVideoLocation()
- * 它只允许在 components/RenamePage.jsx 里调用，且必须经过 diff 预览 + 显式确认。
- * api-safety.test.js 会断言除 RenamePage.jsx 外没有别的文件引用它。
+ * 允许触碰用户媒体目录的受控接口（均需用户显式确认，绝不静默执行）：
+ *   - PATCH  /videos/:id/locations/:locationId   → renameVideoLocation()
+ *     只允许在 components/RenamePage.jsx 里调用，且必须经过 diff 预览 + 显式确认。
+ *   - DELETE /videos/:id/locations/:locationId   → deleteVideoLocation()
+ *     只允许在 components/JavDetailPage.jsx 的「库内文件」列表里调用，
+ *     且删除前必须弹出二次确认（ConfirmDialog danger）。
+ * 删除视频文件属于高风险操作，api-safety.test.js 会断言除上述两个受控文件外
+ * 没有别的文件引用它们。
  *
  * 关于 deleteVideoScreenshot()：它删的是 JavBoss 自己生成的截图。
  * 已核实 internal/server/video_api.go:1742-1798：路径被限制在
@@ -349,6 +352,21 @@ export async function renameVideoLocation(videoId, locationId, filename) {
   return requestJSON('PATCH', `/videos/${videoId}/locations/${locationId}`, {
     body: { filename },
   })
+}
+
+/* ---------------- 删除单个视频文件（受控，仅限 JavDetailPage.jsx） ----------------
+ *
+ * ⚠️ 只允许在 components/JavDetailPage.jsx 的「库内文件」列表中调用，
+ * 且调用前必须弹出二次确认（ConfirmDialog danger），绝不静默删除。
+ *
+ * 后端行为（internal/server/video_api.go deleteVideoLocation）：
+ *   1. 目录缺失或为远程目录时直接拒绝
+ *   2. 解析文件实际路径并 os.Stat 校验存在
+ *   3. 移动到回收站（util.MoveFileToTrash），不是不可逆的 os.Remove
+ *   4. 从数据库移除该文件位置
+ */
+export async function deleteVideoLocation(videoId, locationId) {
+  return requestJSON('DELETE', `/videos/${videoId}/locations/${locationId}`)
 }
 
 /* ---------------- JAV ---------------- */

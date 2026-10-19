@@ -6,9 +6,13 @@ import { zh } from '@/utils/i18n'
 /**
  * 长按卡片 / 点 ⋮ 后的操作菜单。
  *
- * ⚠️ 这里**不允许**出现任何会删除、覆盖或移动视频文件的入口。
+ * ⚠️ 默认（视频列表）**不允许**出现任何会删除、覆盖或移动视频文件的入口。
  * 唯一会写媒体目录的是「重命名文件」，它会跳到带 diff 预览的确认页。
  * 菜单末尾保留一条置灰的「删除文件（移动端已禁用）」，明确告知能力边界。
+ *
+ * 例外：JAV 作品详情页的「库内文件」列表通过 options.canDelete 传入回调，
+ * 此时把这条替换为可点的「删除文件」，由详情页负责二次确认后再删；
+ * 本组件自身绝不直接调用删除接口。
  */
 function Row({ icon, label, hint, onClick, disabled = false, danger = false }) {
   return (
@@ -34,6 +38,7 @@ function Row({ icon, label, hint, onClick, disabled = false, danger = false }) {
 
 export default function ActionSheet() {
   const video = useStore((state) => state.actionSheetVideo)
+  const options = useStore((state) => state.actionSheetOptions)
   const close = useStore((state) => state.closeActionSheet)
   const pushPage = useStore((state) => state.pushPage)
   const enterSelection = useStore((state) => state.enterSelection)
@@ -125,20 +130,38 @@ export default function ActionSheet() {
 
           <div className="mx-3 my-1.5 border-t border-[#f1f2f5]" />
 
-          {/* 能力边界：明确告诉用户移动端不做这件事，而不是藏起来 */}
-          <Row
-            icon="ban"
-            label={zh('删除文件', 'Delete file')}
-            hint={zh('移动端已禁用', 'Disabled on mobile')}
-            disabled
-          />
+          {/* 能力边界：默认明确告诉用户移动端不做这件事，而不是藏起来；
+              只有在 JAV 详情页「库内文件」中才放开为可点（由详情页二次确认）。 */}
+          {options?.canDelete ? (
+            <Row
+              icon="trash"
+              danger
+              label={zh('删除文件', 'Delete file')}
+              onClick={() => {
+                close()
+                options.onDelete?.()
+              }}
+            />
+          ) : (
+            <Row
+              icon="ban"
+              label={zh('删除文件', 'Delete file')}
+              hint={zh('移动端已禁用', 'Disabled on mobile')}
+              disabled
+            />
+          )}
         </div>
 
         <p className="px-4 pb-4 pt-1 text-[11px] leading-relaxed text-zinc-400">
-          {zh(
-            '移动端不会删除、覆盖或移动你的视频文件。需要清理列表时请使用「从媒体库移除」，它只隐藏数据库记录。',
-            'The mobile app never deletes, overwrites, or moves your video files.'
-          )}
+          {options?.canDelete
+            ? zh(
+                '删除本地文件属于高风险操作，会先从磁盘移除文件，请在确认后操作。',
+                'Deleting a local file removes it from disk. Confirm carefully before proceeding.'
+              )
+            : zh(
+                '移动端不会删除、覆盖或移动你的视频文件。需要清理列表时请使用「从媒体库移除」，它只隐藏数据库记录。',
+                'The mobile app never deletes, overwrites, or moves your video files.'
+              )}
         </p>
       </div>
     </>

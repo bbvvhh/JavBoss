@@ -552,8 +552,10 @@ export const useStore = create((set, get) => ({
 
   /* ---------------- 长按 / ⋮ 操作菜单 ---------------- */
   actionSheetVideo: null,
-  openActionSheet: (video) => set({ actionSheetVideo: video }),
-  closeActionSheet: () => set({ actionSheetVideo: null }),
+  actionSheetOptions: {},
+  openActionSheet: (video, options = {}) =>
+    set({ actionSheetVideo: video, actionSheetOptions: options || {} }),
+  closeActionSheet: () => set({ actionSheetVideo: null, actionSheetOptions: {} }),
 
   /* ---------------- 多选 ---------------- */
   selectionMode: false,
