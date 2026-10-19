@@ -15,7 +15,10 @@ test('does not apply when the setting is off', () => {
 
 test('keeps URL-provided random or temp sort', () => {
   assert.equal(shouldApplyDefaultRandom({ random: true, tempSort: '', page: 1 }, true), false)
-  assert.equal(shouldApplyDefaultRandom({ random: false, tempSort: 'duration', page: 1 }, true), false)
+  assert.equal(
+    shouldApplyDefaultRandom({ random: false, tempSort: 'duration', page: 1 }, true),
+    false
+  )
 })
 
 test('does not override a deep-linked page', () => {
