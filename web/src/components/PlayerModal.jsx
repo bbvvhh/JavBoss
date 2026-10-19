@@ -166,11 +166,10 @@ export default function PlayerModal({
     applyActiveSubtitle()
   }, [activeSubtitleId, subtitles, applyActiveSubtitle])
 
-  // 文件名带 -C 的中文字幕版本，画面里已烧录字幕，默认不自动挂载外部字幕。
-  const autoLoadSubtitle = useMemo(
-    () => !hasEmbeddedChineseSubtitles(getVideoDisplayName(video)),
-    [video]
-  )
+  // 用「实际播放的文件名」判断（不是番号/标题这类派生名称）：文件名带 -C 的
+  // 中文字幕版本画面里已烧录字幕，默认不自动挂载外部字幕。
+  const playedFileName = video?.filename || video?.path || ''
+  const autoLoadSubtitle = !hasEmbeddedChineseSubtitles(playedFileName)
 
   // 打开视频时读取本地字幕：有就直接挂上最新的一条（-C 版本除外），
   // 用户可在面板里切换或关闭。

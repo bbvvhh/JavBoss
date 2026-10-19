@@ -69,6 +69,7 @@ test('hasEmbeddedChineseSubtitles 识别文件名带 -C 的中文字幕版本', 
   assert.equal(hasEmbeddedChineseSubtitles('[44x.me]AOZ-132-C.mp4'), true)
   assert.equal(hasEmbeddedChineseSubtitles('SSIS-001-C-chinese.mp4'), true)
   assert.equal(hasEmbeddedChineseSubtitles('ABP-123-C'), true)
+  assert.equal(hasEmbeddedChineseSubtitles('D:\\JAV\\movies\\AOZ-132-C.mp4'), true)
 })
 
 test('hasEmbeddedChineseSubtitles 不误判厂牌后缀与普通文件名', () => {
@@ -76,6 +77,7 @@ test('hasEmbeddedChineseSubtitles 不误判厂牌后缀与普通文件名', () =
   assert.equal(hasEmbeddedChineseSubtitles('ABP-888C.mp4'), false)
   assert.equal(hasEmbeddedChineseSubtitles('ABP-001.mp4'), false)
   assert.equal(hasEmbeddedChineseSubtitles('/data/movies/ABP-001.HD.mp4'), false)
+  assert.equal(hasEmbeddedChineseSubtitles('D:\\JAV\\movies\\ABP-001.mp4'), false)
   for (const value of ['', null, undefined]) {
     assert.equal(hasEmbeddedChineseSubtitles(value), false)
   }
