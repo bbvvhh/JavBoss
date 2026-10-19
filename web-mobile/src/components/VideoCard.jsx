@@ -21,6 +21,7 @@ export default function VideoCard({
   onToggle,
 }) {
   const [imageFailed, setImageFailed] = useState(false)
+  const [javCoverFailed, setJavCoverFailed] = useState(false)
 
   const displayName = getVideoDisplayName(video)
   const fingerprint = parseVideoFingerprint(video?.fingerprint)
@@ -40,6 +41,10 @@ export default function VideoCard({
     [video?.cover_screenshot_name || '', video?.updated_at || ''].join('|')
   )
   const thumbnailSrc = `/videos/${video?.id}/thumbnail${version ? `?v=${version}` : ''}`
+  // 已刮削的视频优先展示 JAV 封面（与播放记录页一致）：视频缩略图要在服务端
+  // 现生成截图，常拿不到；而 JAV 封面在刮削时已下载好，缺失时再回退到缩略图。
+  const javCoverSrc = code ? `/jav/${encodeURIComponent(code)}/cover` : ''
+  const coverSrc = javCoverSrc && !javCoverFailed ? javCoverSrc : thumbnailSrc
 
   const showDetail = DENSITY_SHOWS_DETAIL[density]
   const compact = density === 'compact'
@@ -80,12 +85,16 @@ export default function VideoCard({
           </div>
         ) : (
           <img
-            src={thumbnailSrc}
+            src={coverSrc}
             alt={displayName}
             loading="lazy"
             decoding="async"
             className="absolute inset-0 h-full w-full object-cover"
-            onError={() => setImageFailed(true)}
+            onError={() => {
+              // JAV 封面加载失败就回退到视频缩略图；缩略图也失败才显示底色。
+              if (coverSrc === javCoverSrc) setJavCoverFailed(true)
+              else setImageFailed(true)
+            }}
           />
         )}
 
