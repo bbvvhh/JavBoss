@@ -156,17 +156,20 @@ type videoJavExistingLinkRequest struct {
 }
 
 type videoJavScrapeInfoResponse struct {
-	Code         string   `json:"code"`
-	Title        string   `json:"title"`
-	Studio       string   `json:"studio"`
-	Series       string   `json:"series"`
-	ReleaseDate  string   `json:"release_date"`
-	ReleaseUnix  int64    `json:"release_unix"`
-	DurationMin  int      `json:"duration_min"`
-	Tags         []string `json:"tags"`
-	Actors       []string `json:"actors"`
-	CoverURL     string   `json:"cover_url"`
-	IsUncensored *bool    `json:"is_uncensored"`
+	Code        string   `json:"code"`
+	Title       string   `json:"title"`
+	Studio      string   `json:"studio"`
+	Series      string   `json:"series"`
+	ReleaseDate string   `json:"release_date"`
+	ReleaseUnix int64    `json:"release_unix"`
+	DurationMin int      `json:"duration_min"`
+	Tags        []string `json:"tags"`
+	Actors      []string `json:"actors"`
+	CoverURL    string   `json:"cover_url"`
+	// CoverPreviewURL 指向服务端下载到临时目录的封面副本（供预览展示，避免
+	// 客户端直连第三方图片被防盗链拦截）。CoverURL 仍保留原始地址用于落库。
+	CoverPreviewURL string `json:"cover_preview_url"`
+	IsUncensored    *bool  `json:"is_uncensored"`
 }
 
 type videoJavPossibleCodesResponse struct {
@@ -877,7 +880,8 @@ func lookupVideoJavScrape(c *gin.Context) {
 }
 
 func lookupVideoJavScrapeByProvider(c *gin.Context, provider jav.Provider) {
-	if _, ok := parsePositiveVideoID(c); !ok {
+	videoID, ok := parsePositiveVideoID(c)
+	if !ok {
 		return
 	}
 	code := strings.TrimSpace(c.Query("code"))
@@ -916,7 +920,95 @@ func lookupVideoJavScrapeByProvider(c *gin.Context, provider jav.Provider) {
 		)
 		return
 	}
-	c.JSON(http.StatusOK, javInfoToVideoScrapeResponse(info))
+	resp := javInfoToVideoScrapeResponse(info)
+	previewCtx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+	if downloadScrapePreviewCover(previewCtx, videoID, info.CoverURL) {
+		resp.CoverPreviewURL = fmt.Sprintf(
+			"/videos/%d/jav-scrape/cover-preview?ts=%d",
+			videoID,
+			time.Now().UnixNano(),
+		)
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// scrapePreviewDir 是「刮削结果预览封面」的临时目录。它位于 data/cache/ 下，
+// 该目录不在备份范围内，也不会被当作媒体库封面。
+func scrapePreviewDir() string {
+	cfg := common.AppConfig
+	if cfg == nil || strings.TrimSpace(cfg.DatabasePath) == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(cfg.DatabasePath), "cache", "scrape-preview")
+}
+
+// scrapePreviewMaxAge 之后仍未被删除的预览封面会被当作残留清理掉，
+// 兜底程序异常退出（未走关闭清理）留下的临时文件。
+const scrapePreviewMaxAge = 24 * time.Hour
+
+func pruneScrapePreviewDir(dir string) {
+	if dir == "" {
+		return
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	deadline := time.Now().Add(-scrapePreviewMaxAge)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || info.ModTime().After(deadline) {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, entry.Name()))
+	}
+}
+
+// downloadScrapePreviewCover 把关联网站返回的封面下载到临时目录供预览展示，
+// 返回是否成功。失败时前端会回退到原始 cover_url。
+func downloadScrapePreviewCover(ctx context.Context, videoID int64, coverURL string) bool {
+	dir := scrapePreviewDir()
+	if dir == "" || strings.TrimSpace(coverURL) == "" {
+		return false
+	}
+	pruneScrapePreviewDir(dir)
+	if _, err := manager.DownloadPreviewImage(ctx, dir, strconv.FormatInt(videoID, 10), coverURL); err != nil {
+		logging.Error("scrape preview cover download failed video=%d: %v", videoID, err)
+		return false
+	}
+	return true
+}
+
+// getVideoJavScrapeCoverPreview 提供预览封面的本地副本。
+func getVideoJavScrapeCoverPreview(c *gin.Context) {
+	id, ok := parsePositiveVideoID(c)
+	if !ok {
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	if dir := scrapePreviewDir(); dir != "" {
+		if previewPath, found := manager.FindImagePath(dir, strconv.FormatInt(id, 10)); found {
+			c.File(previewPath)
+			return
+		}
+	}
+	respondLocalizedError(c, http.StatusNotFound, "预览封面不存在", "Preview cover was not found")
+}
+
+// deleteVideoJavScrapeCoverPreview 删除预览封面：用户未保存刮削结果时前端调用。
+func deleteVideoJavScrapeCoverPreview(c *gin.Context) {
+	id, ok := parsePositiveVideoID(c)
+	if !ok {
+		return
+	}
+	if dir := scrapePreviewDir(); dir != "" {
+		manager.RemoveImageFiles(dir, strconv.FormatInt(id, 10))
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 func parseVideoJavScrapeLookupProvider(value string) (jav.Provider, bool) {

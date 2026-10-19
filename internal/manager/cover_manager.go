@@ -206,25 +206,41 @@ func (m *CoverManager) downloadCover(ctx context.Context, code, coverURL string)
 	if code == "" {
 		return errors.New("empty code")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, coverURL, nil)
+	_, err := downloadImage(ctx, m.coverDir, code, coverURL, minValidCoverSizeBytes)
+	return err
+}
+
+// downloadImage fetches imageURL and stores it in dir as name+<ext>, returning
+// the written path. A positive minSize enforces the library cover size gate;
+// pass 0 to accept any non-empty image (temporary previews).
+func downloadImage(ctx context.Context, dir, name, imageURL string, minSize int64) (string, error) {
+	dir = strings.TrimSpace(dir)
+	name = strings.TrimSpace(name)
+	if dir == "" {
+		return "", errors.New("image dir is not configured")
+	}
+	if name == "" {
+		return "", errors.New("empty image name")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSpace(imageURL), nil)
 	if err != nil {
-		return fmt.Errorf("build cover request: %w", err)
+		return "", fmt.Errorf("build cover request: %w", err)
 	}
 	setCoverDownloadHeaders(req)
 	resp, err := util.DoRequest(req)
 	if err != nil {
 		if errors.Is(err, util.ErrCachedNotFound) {
-			return err
+			return "", err
 		}
-		return fmt.Errorf("download cover: %w", err)
+		return "", fmt.Errorf("download cover: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusNotFound {
-			return util.ErrCachedNotFound
+			return "", util.ErrCachedNotFound
 		}
-		return fmt.Errorf("download cover: status %s", resp.Status)
+		return "", fmt.Errorf("download cover: status %s", resp.Status)
 	}
 
 	ext := strings.ToLower(path.Ext(resp.Request.URL.Path))
@@ -235,35 +251,56 @@ func (m *CoverManager) downloadCover(ctx context.Context, code, coverURL string)
 		ext = ".jpg"
 	}
 
-	target := filepath.Join(m.coverDir, code+ext)
+	target := filepath.Join(dir, name+ext)
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return fmt.Errorf("ensure cover dir: %w", err)
+		return "", fmt.Errorf("ensure cover dir: %w", err)
 	}
 	tmp := target + ".tmp"
 	out, err := os.Create(tmp)
 	if err != nil {
-		return fmt.Errorf("create temp: %w", err)
+		return "", fmt.Errorf("create temp: %w", err)
 	}
 	written, err := io.Copy(out, resp.Body)
 	if err != nil {
 		out.Close()
 		_ = os.Remove(tmp)
-		return fmt.Errorf("write cover: %w", err)
+		return "", fmt.Errorf("write cover: %w", err)
 	}
 	if err := out.Close(); err != nil {
 		_ = os.Remove(tmp)
-		return fmt.Errorf("close cover: %w", err)
+		return "", fmt.Errorf("close cover: %w", err)
 	}
-	if written < minValidCoverSizeBytes {
+	if minSize > 0 && written < minSize {
 		_ = os.Remove(tmp)
-		return fmt.Errorf("%w: size %d below minimum %d", errInvalidCover, written, minValidCoverSizeBytes)
+		return "", fmt.Errorf("%w: size %d below minimum %d", errInvalidCover, written, minSize)
 	}
-	removeCoverFiles(m.coverDir, code)
+	removeCoverFiles(dir, name)
 	if err := os.Rename(tmp, target); err != nil {
 		_ = os.Remove(tmp)
-		return fmt.Errorf("finalize cover: %w", err)
+		return "", fmt.Errorf("finalize cover: %w", err)
 	}
-	return nil
+	return target, nil
+}
+
+// RemoveImageFiles deletes name+<known ext> files in dir (temporary previews).
+func RemoveImageFiles(dir, name string) {
+	removeCoverFiles(dir, name)
+}
+
+// FindImagePath returns the first existing name+<known ext> file in dir.
+// Unlike FindCoverPath it applies no minimum-size gate.
+func FindImagePath(dir, name string) (string, bool) {
+	name = normalizeCode(name)
+	if name == "" {
+		return "", false
+	}
+	for _, ext := range knownExts {
+		p := filepath.Join(dir, name+ext)
+		if info, err := os.Stat(p); err == nil && info.Size() > 0 {
+			return p, true
+		}
+	}
+	return "", false
 }
 
 func removeCoverFiles(coverDir, code string) {
@@ -305,19 +342,37 @@ func DownloadCoverFromURL(ctx context.Context, coverDir, code, coverURL string) 
 	if code == "" {
 		return errors.New("empty code")
 	}
-	if coverURL == "" {
+	if err := validateImageURL(coverURL); err != nil {
+		return err
+	}
+
+	manager := &CoverManager{coverDir: coverDir}
+	return manager.downloadCover(ctx, code, coverURL)
+}
+
+// DownloadPreviewImage downloads imageURL into dir as name+<ext> and returns the
+// written path. Unlike DownloadCoverFromURL it applies no minimum-size gate, so
+// it suits temporary scrape-preview covers.
+func DownloadPreviewImage(ctx context.Context, dir, name, imageURL string) (string, error) {
+	if err := validateImageURL(imageURL); err != nil {
+		return "", err
+	}
+	return downloadImage(ctx, dir, name, imageURL, 0)
+}
+
+func validateImageURL(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
 		return errors.New("cover url is required")
 	}
-	u, err := url.Parse(coverURL)
+	u, err := url.Parse(raw)
 	if err != nil || u == nil || u.Hostname() == "" {
 		return errors.New("invalid cover url")
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return errors.New("cover url must be http or https")
 	}
-
-	manager := &CoverManager{coverDir: coverDir}
-	return manager.downloadCover(ctx, code, coverURL)
+	return nil
 }
 
 func normalizeCode(code string) string {

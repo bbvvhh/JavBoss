@@ -354,6 +354,14 @@ export async function lookupVideoJavScrape(videoId, provider, code) {
   return requestJSON('GET', `/videos/${videoId}/jav-scrape/lookup?${query.toString()}`)
 }
 
+/**
+ * 删除刮削结果预览用的临时封面。
+ * 用户未保存刮削结果就离开预览页时调用，避免临时文件残留。
+ */
+export async function disposeVideoJavScrapeCoverPreview(videoId) {
+  await requestOK('DELETE', `/videos/${videoId}/jav-scrape/cover-preview`)
+}
+
 /* ---------------- 从媒体库移除（仅改数据库，绝不动文件） ---------------- */
 
 // 需要后端新增 POST /videos/locations/hide（P3 落地）。

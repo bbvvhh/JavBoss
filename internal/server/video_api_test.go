@@ -226,6 +226,63 @@ func TestRegisterRoutesIncludesVideoScreenshotList(t *testing.T) {
 	}
 }
 
+func TestRegisterRoutesIncludesJavScrapeCoverPreview(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	RegisterRoutes(router)
+
+	foundGet := false
+	foundDelete := false
+	for _, route := range router.Routes() {
+		foundGet = foundGet || route.Method == "GET" && route.Path == "/videos/:id/jav-scrape/cover-preview"
+		foundDelete = foundDelete || route.Method == "DELETE" && route.Path == "/videos/:id/jav-scrape/cover-preview"
+	}
+	if !foundGet || !foundDelete {
+		t.Fatalf("jav-scrape cover-preview routes missing: get=%v delete=%v", foundGet, foundDelete)
+	}
+}
+
+func TestJavScrapeCoverPreviewServeAndDelete(t *testing.T) {
+	dataDir := t.TempDir()
+	previousCfg := common.AppConfig
+	common.AppConfig = &common.Config{DatabasePath: filepath.Join(dataDir, "javboss.db")}
+	t.Cleanup(func() { common.AppConfig = previousCfg })
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/videos/:id/jav-scrape/cover-preview", getVideoJavScrapeCoverPreview)
+	router.DELETE("/videos/:id/jav-scrape/cover-preview", deleteVideoJavScrapeCoverPreview)
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/videos/7/jav-scrape/cover-preview", nil))
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("missing preview status = %d, want 404", recorder.Code)
+	}
+
+	previewPath := filepath.Join(dataDir, "cache", "scrape-preview", "7.jpg")
+	if err := os.MkdirAll(filepath.Dir(previewPath), 0o755); err != nil {
+		t.Fatalf("create preview dir: %v", err)
+	}
+	if err := os.WriteFile(previewPath, []byte("cover"), 0o644); err != nil {
+		t.Fatalf("write preview: %v", err)
+	}
+
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/videos/7/jav-scrape/cover-preview?ts=1", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("existing preview status = %d, want 200", recorder.Code)
+	}
+
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodDelete, "/videos/7/jav-scrape/cover-preview", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("delete preview status = %d, want 200", recorder.Code)
+	}
+	if _, err := os.Stat(previewPath); !os.IsNotExist(err) {
+		t.Fatalf("preview file should be removed, stat err=%v", err)
+	}
+}
+
 func TestLinkVideoExistingJavPreservesMetadataAndLinksAllLocations(t *testing.T) {
 	database, err := dbpkg.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

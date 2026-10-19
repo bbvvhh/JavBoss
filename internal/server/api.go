@@ -50,6 +50,9 @@ func RegisterRoutes(router gin.IRoutes) {
 	router.PATCH("/videos/:id/jav-scrape", updateVideoJavScrapeSettings)
 	router.GET("/videos/:id/jav-scrape/possible-codes", getVideoJavScrapePossibleCodes)
 	router.GET("/videos/:id/jav-scrape/lookup", lookupVideoJavScrape)
+	// 刮削结果预览封面：服务端下载到临时目录后由这里提供给前端；未保存时删除。
+	router.GET("/videos/:id/jav-scrape/cover-preview", getVideoJavScrapeCoverPreview)
+	router.DELETE("/videos/:id/jav-scrape/cover-preview", deleteVideoJavScrapeCoverPreview)
 	router.POST("/videos/:id/jav-scrape/link", linkVideoExistingJav)
 	router.POST("/videos/:id/jav-scrape/manual", manualVideoJavScrape)
 	router.DELETE("/videos/:id/screenshots/:name", deleteVideoScreenshot)

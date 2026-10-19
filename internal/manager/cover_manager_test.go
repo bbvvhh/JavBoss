@@ -166,3 +166,30 @@ func TestHandleTaskRetriesAfterSmallCover(t *testing.T) {
 		t.Fatalf("final cover size = %d, want %d", info.Size(), minValidCoverSizeBytes)
 	}
 }
+
+func TestDownloadPreviewImageSkipsMinSizeGate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte("tiny"))
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	path, err := DownloadPreviewImage(context.Background(), dir, "42", server.URL+"/preview.jpg")
+	if err != nil {
+		t.Fatalf("DownloadPreviewImage: %v", err)
+	}
+	if filepath.Base(path) != "42.jpg" {
+		t.Fatalf("preview path = %q, want 42.jpg", path)
+	}
+
+	found, ok := FindImagePath(dir, "42")
+	if !ok || found != path {
+		t.Fatalf("FindImagePath = %q, %v; want %q", found, ok, path)
+	}
+
+	RemoveImageFiles(dir, "42")
+	if _, ok := FindImagePath(dir, "42"); ok {
+		t.Fatal("preview file should be removed")
+	}
+}

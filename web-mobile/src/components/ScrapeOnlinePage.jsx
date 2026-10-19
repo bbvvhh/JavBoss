@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react'
 
-import { fetchVideoJavScrapePossibleCodes, lookupVideoJavScrape, manualVideoJavScrape } from '@/api'
+import {
+  disposeVideoJavScrapeCoverPreview,
+  fetchVideoJavScrapePossibleCodes,
+  lookupVideoJavScrape,
+  manualVideoJavScrape,
+} from '@/api'
 import Icon from '@/components/Icons'
 import SubPage from '@/components/SubPage'
 import { useStore, videoKey } from '@/store'
@@ -139,7 +144,7 @@ export default function ScrapeOnlinePage({ video, onClose }) {
       patchVideo(videoKey(video), updated || {})
       await loadVideos()
       showToast(zh('刮削结果已保存', 'Scrape result saved'))
-      onClose?.()
+      closePage()
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
@@ -150,16 +155,25 @@ export default function ScrapeOnlinePage({ video, onClose }) {
   const busy = scraping || saving
   const missing = result ? scrapeResultMissingFields(result) : []
 
+  // 预览封面由服务端下载到临时目录；离开页面时删除临时副本，避免文件残留。
+  // 保存成功后封面已落库到 data/cover，此处的临时副本同样可以删除。
+  const closePage = () => {
+    if (video?.id) {
+      disposeVideoJavScrapeCoverPreview(video.id).catch(() => {})
+    }
+    onClose?.()
+  }
+
   return (
     <SubPage
       title={zh('在线刮削', 'Scrape now')}
       subtitle={String(video?.filename || '')}
-      onBack={onClose}
+      onBack={closePage}
       footer={
         <>
           <button
             type="button"
-            onClick={onClose}
+            onClick={closePage}
             className="h-11 w-20 flex-none rounded-card bg-[#f1f2f5] text-sm font-bold text-zinc-700"
           >
             {zh('关闭', 'Close')}
@@ -279,10 +293,10 @@ export default function ScrapeOnlinePage({ video, onClose }) {
                 {SCRAPE_PROVIDERS.find((item) => item.value === provider)?.label}
               </span>
             </div>
-            {result.cover_url ? (
+            {result.cover_preview_url || result.cover_url ? (
               <div className="border-b border-[#f1f2f5] bg-[#f7f8fa] px-3.5 py-3">
                 <img
-                  src={result.cover_url}
+                  src={result.cover_preview_url || result.cover_url}
                   alt={zh('封面', 'Cover')}
                   className="mx-auto max-h-56 rounded-lg object-contain"
                   referrerPolicy="no-referrer"
