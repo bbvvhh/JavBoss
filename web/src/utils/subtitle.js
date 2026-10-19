@@ -66,10 +66,14 @@ export function subtitleLanguageLabel(item) {
 /**
  * 判断「实际播放的视频文件名」是否带 -C（自带中文字幕的版本）。
  *
- * 只看正在播放的那个文件的名字本身（不是番号、标题这类派生名称）：这类
- * 文件的画面里已经烧录了中文字幕，播放时默认不自动挂载外部字幕（仍可在
- * 字幕面板里手动选择）。判定会去掉目录与扩展名，并要求 -C 是独立片段，
- * 避免把 `-CARIB` 之类的厂牌后缀误判成中文字幕版本。
+ * 匹配规则：忽略第一个 `-`，从第二个 `-` 起后面只要紧跟 `C` 即命中
+ *（`SSIS-001-C`、`SSIS-001-C-chinese` 命中；`ABC123-C` 这种只有一个 `-C`
+ * 的不算）。只看正在播放的那个文件的名字本身，不看番号/标题等派生名称；
+ * 这类文件画面里已烧录中文字幕，播放时默认不挂载外部字幕（仍可在字幕
+ * 面板里手动选择）。
+ *
+ * 注意：按此规则 `051626-001-CARIB` 也会命中（第二个 `-` 后面同样是 C）。
+ * 若需要排除 `-CARIB` 之类厂牌后缀，请把判定收紧成「该段恰好是 C」。
  */
 export function hasEmbeddedChineseSubtitles(filename) {
   const base = String(filename || '')
@@ -79,5 +83,11 @@ export function hasEmbeddedChineseSubtitles(filename) {
     .pop()
   if (!base) return false
   const stem = base.replace(/\.[^./]+$/, '')
-  return /-c(?=[-_.\s]|$)/i.test(stem)
+  // 跳过第一个 -，其后任意 - 紧跟 C 即命中。
+  const firstDash = stem.indexOf('-')
+  if (firstDash < 0) return false
+  for (let i = firstDash + 1; i < stem.length - 1; i += 1) {
+    if (stem[i] === '-' && stem[i + 1].toUpperCase() === 'C') return true
+  }
+  return false
 }

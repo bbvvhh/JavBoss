@@ -72,16 +72,19 @@ test('subtitleLanguageLabel 对空语言给出占位', () => {
   assert.equal(subtitleLanguageLabel(null), '未知语言')
 })
 
-test('hasEmbeddedChineseSubtitles 识别文件名带 -C 的中文字幕版本', () => {
+test('hasEmbeddedChineseSubtitles 命中第二个 - 起、后面紧跟 C 的文件名', () => {
   assert.equal(hasEmbeddedChineseSubtitles('AOZ-132-C.mp4'), true)
   assert.equal(hasEmbeddedChineseSubtitles('[44x.me]AOZ-132-C.mp4'), true)
   assert.equal(hasEmbeddedChineseSubtitles('SSIS-001-C-chinese.mp4'), true)
   assert.equal(hasEmbeddedChineseSubtitles('ABP-123-C'), true)
   assert.equal(hasEmbeddedChineseSubtitles('D:\\JAV\\movies\\AOZ-132-C.mp4'), true)
+  // 规则只看「第二个 - 起后面是否紧跟 C」，故 -CARIB 也命中
+  assert.equal(hasEmbeddedChineseSubtitles('051626-001-CARIB.mp4'), true)
 })
 
-test('hasEmbeddedChineseSubtitles 不误判厂牌后缀与普通文件名', () => {
-  assert.equal(hasEmbeddedChineseSubtitles('051626-001-CARIB.mp4'), false)
+test('hasEmbeddedChineseSubtitles 不把第一个 -C 与无 -C 的文件名当成中文字幕版本', () => {
+  assert.equal(hasEmbeddedChineseSubtitles('ABC123-C.mp4'), false)
+  assert.equal(hasEmbeddedChineseSubtitles('-C123.mp4'), false)
   assert.equal(hasEmbeddedChineseSubtitles('ABP-888C.mp4'), false)
   assert.equal(hasEmbeddedChineseSubtitles('ABP-001.mp4'), false)
   assert.equal(hasEmbeddedChineseSubtitles('/data/movies/ABP-001.HD.mp4'), false)
