@@ -76,6 +76,11 @@ func RegisterRoutes(router gin.IRoutes) {
 	router.GET("/videos/:id/playback", getVideoPlayback)
 	router.PUT("/videos/:id/playback", updateVideoPlayback)
 	router.DELETE("/videos/:id/playback", deleteVideoPlayback)
+	// 稍后观看：一个视频文件最多一项，重复加入幂等，与播放记录彼此独立。
+	router.GET("/watch-later", listWatchLater)
+	router.GET("/videos/:id/watch-later", getVideoWatchLater)
+	router.PUT("/videos/:id/watch-later", addVideoWatchLater)
+	router.DELETE("/videos/:id/watch-later", removeVideoWatchLater)
 	router.POST("/videos/play", playVideoFile)
 	router.POST("/videos/playlist", playVideoPlaylist)
 	router.POST("/videos/open", openVideoFile)

@@ -533,6 +533,12 @@ func DeleteByIDs(ctx context.Context, ids []int64) error {
 		Delete(&models.PlaybackHistory{}).Error; err != nil {
 		return fmt.Errorf("delete video playback history: %w", err)
 	}
+	// 稍后观看同理：视频没了，列表项也就没有意义了。
+	if err := common.DB.WithContext(ctx).
+		Where("video_id IN ?", ids).
+		Delete(&models.WatchLater{}).Error; err != nil {
+		return fmt.Errorf("delete video watch later: %w", err)
+	}
 	if err := common.DB.WithContext(ctx).Where("id IN ?", ids).Delete(&models.Video{}).Error; err != nil {
 		return fmt.Errorf("delete videos: %w", err)
 	}
