@@ -128,6 +128,7 @@ export function JavDetailPage({ jav, onClose }) {
   const openPlayer = useStore((state) => state.openPlayer)
   const openActionSheet = useStore((state) => state.openActionSheet)
   const jumpToJavWorks = useStore((state) => state.jumpToJavWorks)
+  const openJavIdol = useStore((state) => state.openJavIdol)
   const showToast = useStore((state) => state.showToast)
   const patchJavItem = useStore((state) => state.patchJavItem)
 
@@ -285,7 +286,7 @@ export function JavDetailPage({ jav, onClose }) {
                 <button
                   key={idol.id ?? idol.name}
                   type="button"
-                  onClick={() => jumpToJavWorks({ idolIds: [idol.id] })}
+                  onClick={() => openJavIdol(idol)}
                   className="font-medium text-brand active:underline"
                 >
                   {index > 0 ? <span className="text-zinc-300">· </span> : null}

@@ -6,6 +6,7 @@ import {
   fetchConfig,
   fetchDirectories,
   fetchJavs,
+  fetchJavIdol,
   fetchJavFilterOptions,
   fetchJavFavoriteGroups,
   updateConfig,
@@ -433,6 +434,27 @@ export const useStore = create((set, get) => ({
     })
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'auto' })
   },
+
+  /**
+   * 打开女优详情页。
+   *
+   * 作品卡 / 作品详情里的演员来自 `/jav` 列表，只有 `{ id, name, ... }`，缺封面、
+   * 作品数、三围等详情页要用的 enrich 字段，直接压栈会得到一张没有封面的详情页。
+   * 这里先按 id 取一次完整资料再合并；取不到就沿用列表里的快照，至少保证能进页。
+   */
+  openJavIdol: async (idol) => {
+    const id = Number(idol?.id)
+    if (!Number.isFinite(id) || id <= 0) return
+    let payload = idol
+    try {
+      const full = await fetchJavIdol(id)
+      if (full && typeof full === 'object') payload = { ...idol, ...full }
+    } catch {
+      /* 拉取失败仍用列表里的快照进页 */
+    }
+    set({ pages: [...get().pages, { type: 'jav-idol', payload }] })
+  },
+
   javFilterCount: () => {
     const f = get().javFilters
     return (

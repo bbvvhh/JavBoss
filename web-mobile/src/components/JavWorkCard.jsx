@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import Icon from '@/components/Icons'
 import useLongPress from '@/hooks/useLongPress'
@@ -13,13 +13,17 @@ import { zh } from '@/utils/i18n'
  *   standard —— 2 列，标题 2 行 + 演员 · 片商
  *   compact  —— 3 列，只留标题
  *
- * 卡片整体只做一件事：打开作品详情。「跳转到某位女优/片商/系列的影片」
- * 这类动作放在详情页里，避免可交互元素嵌套。
+ * 点击分区（移动端明确要求的行为，务必保持可预测）：
+ *   封面   → 播放库内第一个文件（没有本地文件时回落到作品详情）
+ *   标题   → 作品详情
+ *   演员名 → 女优详情页
+ * 卡内其余区域（元信息 chips、标签、留白）不绑定动作，避免误触进错页面。
+ *
+ * 多选态由作品列表页下发：整卡点选 = 勾选/取消，长按 = 进入多选（与视频卡一致）。
+ * 多选态下封面 / 标题 / 演员一律只做勾选，不再触发上面的跳转。
  *
  * 显示哪些行由全局设置决定（不显示演员 / 标签 / 系列、优先中文名、简体标签），
  * 与 PC 端共用同一批配置键。
- *
- * 多选态由作品列表页下发：点选 = 勾选/取消，长按 = 进入多选（与视频卡一致）。
  */
 export default function JavWorkCard({
   item,
@@ -31,64 +35,96 @@ export default function JavWorkCard({
   onLongPress,
 }) {
   const [failed, setFailed] = useState(false)
+  // 刚发生过长按（用于挡掉长按进入多选后紧跟着的那次 click）。
+  const longPressedRef = useRef(false)
   const config = useStore((state) => state.config)
+  const openPlayer = useStore((state) => state.openPlayer)
+  const openJavIdol = useStore((state) => state.openJavIdol)
   const prefs = javDisplayPrefs(config)
 
   const compact = density === 'compact'
   const large = density === 'large'
   const code = String(item?.code || '').trim()
+  const videos = Array.isArray(item?.videos) ? item.videos : []
+  const canPlay = videos.length > 0
+  // 演员要能单独点进详情页，就得同时留着 id 和显示名（只留名字的字符串数组点不出详情）。
   const idols = prefs.hideIdols
     ? []
     : (item?.idols || [])
-        .map((idol) => idolDisplayName(idol, prefs.preferChineseName))
-        .filter(Boolean)
+        .map((idol) => ({ idol, name: idolDisplayName(idol, prefs.preferChineseName) }))
+        .filter((entry) => entry.name)
   const tags = prefs.hideTags ? [] : item?.tags || []
 
-  // 多选态下长按等同于点选，避免误触（此时没有别的长按动作）。
   const gesture = useLongPress({
-    onTap: () => (selectionMode ? onToggle?.(item) : onOpen?.(item)),
-    onLongPress: () => (selectionMode ? onToggle?.(item) : onLongPress?.(item)),
+    onTap: () => {
+      if (selectionMode) onToggle?.(item)
+    },
+    onLongPress: () => {
+      // 长按进入多选后（尤其桌面按住再松开）浏览器可能补发一次 click 到内部分区，
+      // 用这个标记把那次 click 挡掉，避免「刚进多选又跳了详情」。
+      longPressedRef.current = true
+      if (selectionMode) onToggle?.(item)
+      else onLongPress?.(item)
+    },
   })
 
-  // click 只兜底键盘/读屏/程序化触发（detail === 0），避免同一次触摸被处理两次。
-  const activate = () => (selectionMode ? onToggle?.(item) : onOpen?.(item))
+  // 每次新的按下都清掉长按标记，保证它只影响紧跟着的那一次点击。
+  const { onPointerDown: gesturePointerDown, ...gestureRest } = gesture
+  const handlePointerDown = (event) => {
+    longPressedRef.current = false
+    gesturePointerDown(event)
+  }
+
+  const blocked = () => selectionMode || longPressedRef.current
+
+  const play = () => {
+    if (blocked()) return
+    if (canPlay) openPlayer(videos[0], videos)
+    else onOpen?.(item)
+  }
+  const openDetail = () => {
+    if (blocked()) return
+    onOpen?.(item)
+  }
+  const openIdol = (idol) => {
+    if (blocked()) return
+    openJavIdol(idol)
+  }
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      aria-pressed={selectionMode ? selected : undefined}
-      {...gesture}
-      onClick={(event) => {
-        if (event.detail === 0) activate()
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault()
-          activate()
-        }
-      }}
+      {...gestureRest}
+      onPointerDown={handlePointerDown}
       className={`select-none overflow-hidden rounded-card border bg-white text-left shadow-[0_1px_2px_rgba(15,23,42,0.05)] ${
         selected ? 'border-sky-400 ring-2 ring-sky-200' : 'border-[#e6e8ec]'
       }`}
     >
       <div className="relative aspect-[800/538] w-full overflow-hidden bg-zinc-200">
-        {!code || failed ? (
-          <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-zinc-200 to-zinc-300 text-[11px] font-semibold text-white/80">
-            {code || zh('无封面', 'No cover')}
-          </div>
-        ) : (
-          <img
-            src={`/jav/${encodeURIComponent(code)}/cover`}
-            alt={item?.title || code}
-            loading="lazy"
-            decoding="async"
-            onError={() => setFailed(true)}
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-        )}
+        {/* 封面 = 播放按钮：有本地文件时点封面直接播放第一个文件。 */}
+        <button
+          type="button"
+          onClick={play}
+          aria-label={canPlay ? zh('播放', 'Play') : zh('查看详情', 'View details')}
+          className="absolute inset-0 block h-full w-full"
+        >
+          {!code || failed ? (
+            <span className="flex h-full w-full items-center justify-center bg-gradient-to-br from-zinc-200 to-zinc-300 text-[11px] font-semibold text-white/80">
+              {code || zh('无封面', 'No cover')}
+            </span>
+          ) : (
+            <img
+              src={`/jav/${encodeURIComponent(code)}/cover`}
+              alt={item?.title || code}
+              loading="lazy"
+              decoding="async"
+              onError={() => setFailed(true)}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          )}
+        </button>
+        {/* 角标压在封面按钮之上但不吃点击，点它们仍会落到封面上播放。 */}
         <span
-          className={`absolute left-1.5 top-1.5 max-w-[calc(100%-0.75rem)] truncate rounded bg-black/70 px-1.5 py-[1px] font-bold text-white ${
+          className={`pointer-events-none absolute left-1.5 top-1.5 max-w-[calc(100%-0.75rem)] truncate rounded bg-black/70 px-1.5 py-[1px] font-bold text-white ${
             compact ? 'text-[9px]' : 'text-[10px]'
           }`}
         >
@@ -98,7 +134,7 @@ export default function JavWorkCard({
             所以多选态的勾选圈放在右上角（那里本来就是空的）。 */}
         {selectionMode ? (
           <span
-            className={`absolute right-1.5 top-1.5 z-10 grid h-5 w-5 place-items-center rounded-full border-2 border-white shadow ${
+            className={`pointer-events-none absolute right-1.5 top-1.5 z-10 grid h-5 w-5 place-items-center rounded-full border-2 border-white shadow ${
               selected ? 'bg-sky-500' : 'bg-black/25'
             }`}
             aria-hidden="true"
@@ -107,24 +143,27 @@ export default function JavWorkCard({
           </span>
         ) : null}
         {!compact && item?.favorite_rating > 0 ? (
-          <span className="absolute bottom-1.5 right-1.5 rounded bg-black/60 px-1.5 py-[1px] text-[10px] font-bold text-white">
+          <span className="pointer-events-none absolute bottom-1.5 right-1.5 rounded bg-black/60 px-1.5 py-[1px] text-[10px] font-bold text-white">
             ★ {Number(item.favorite_rating).toFixed(1)}
           </span>
         ) : null}
       </div>
 
       <div className={compact ? 'px-1.5 py-1.5' : 'px-2 pb-2.5 pt-2'}>
-        <h3
-          className={
+        {/* 标题 = 打开作品详情 */}
+        <button
+          type="button"
+          onClick={openDetail}
+          className={`block w-full text-left ${
             large
               ? 'text-[14px] font-semibold leading-[1.45] text-zinc-800 [overflow-wrap:anywhere]'
               : `line-clamp-2 font-semibold leading-[1.35] text-zinc-800 ${
                   compact ? 'text-[10.5px]' : 'text-xs'
                 }`
-          }
+          }`}
         >
           {item?.title || code}
-        </h3>
+        </button>
 
         {large ? (
           <>
@@ -149,7 +188,19 @@ export default function JavWorkCard({
                 <span className="flex-none rounded bg-zinc-100 px-[5px] text-[10px] font-bold leading-[15px] text-zinc-400">
                   {zh('演员', 'Cast')}
                 </span>
-                <span className="truncate">{idols.join(' · ')}</span>
+                <span className="flex min-w-0 items-center gap-1 overflow-hidden">
+                  {idols.map((entry, index) => (
+                    <button
+                      key={entry.idol?.id ?? `${entry.name}-${index}`}
+                      type="button"
+                      onClick={() => openIdol(entry.idol)}
+                      className="flex-none font-medium text-brand active:underline"
+                    >
+                      {index > 0 ? <span className="text-zinc-300">· </span> : null}
+                      {entry.name}
+                    </button>
+                  ))}
+                </span>
               </div>
             ) : null}
 
@@ -173,7 +224,21 @@ export default function JavWorkCard({
 
         {!compact && !large ? (
           <p className="mt-1 truncate text-[10.5px] text-zinc-400">
-            {[idols.join(' · '), item?.studio?.name].filter(Boolean).join(' · ') || '—'}
+            {idols.map((entry, index) => (
+              <span key={entry.idol?.id ?? `${entry.name}-${index}`}>
+                {index > 0 ? <span className="text-zinc-300"> · </span> : null}
+                <button
+                  type="button"
+                  onClick={() => openIdol(entry.idol)}
+                  className="font-medium text-brand active:underline"
+                >
+                  {entry.name}
+                </button>
+              </span>
+            ))}
+            {idols.length && item?.studio?.name ? <span className="text-zinc-300"> · </span> : null}
+            {item?.studio?.name ? <span>{item.studio.name}</span> : null}
+            {!idols.length && !item?.studio?.name ? '—' : null}
           </p>
         ) : null}
       </div>

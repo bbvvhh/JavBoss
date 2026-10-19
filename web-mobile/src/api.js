@@ -438,6 +438,17 @@ export async function fetchJavIdols({
 }
 
 /**
+ * 单个女优的完整资料。
+ *
+ * 作品列表 / 作品详情里的演员对象只有 `{ id, name, ... }`，缺封面（`cover_code`）、
+ * 作品数（`work_count`）、三围等 enrich 字段，直接拿它渲染女优详情页会少了封面和资料。
+ * 这里按 id 单独取一次完整 summary。
+ */
+export async function fetchJavIdol(id) {
+  return requestJSON('GET', `/jav/idols/${encodeURIComponent(id)}`, { cache: 'no-store' })
+}
+
+/**
  * 女优封面的候选作品（「自动选择」之外可以指定用哪部作品的封面）。
  * 返回项形如 `{ id, code, title, solo }`。
  */
