@@ -348,7 +348,8 @@ async function buildWeb() {
 }
 
 // 移动端前端。后端把它挂在 /m/ 下，并按 Cookie → UA 的顺序做界面分流。
-async function buildMobileWeb() {
+// version 通过 VITE_APP_VERSION 注入，让「我的 / 关于」页显示的版本与安装包一致。
+async function buildMobileWeb(version) {
   if (process.env.SKIP_MOBILE_WEB_BUILD === "1") {
     console.log("[release] SKIP_MOBILE_WEB_BUILD=1，跳过移动端构建");
     return;
@@ -359,7 +360,9 @@ async function buildMobileWeb() {
   }
   console.log("[release] 构建移动端 web-mobile/dist");
   await ensureNpmDeps(MOBILE_WEB_DIR);
-  await runCommand("npm", ["run", "build"], { cwd: MOBILE_WEB_DIR });
+  const env = { ...process.env };
+  if (version) env.VITE_APP_VERSION = String(version);
+  await runCommand("npm", ["run", "build"], { cwd: MOBILE_WEB_DIR, env });
 }
 
 async function runFrontendDev() {
@@ -750,7 +753,7 @@ async function runRelease(choice, version) {
   await buildWeb();
   console.log("[release] 复制前端资源");
   await copyDir(path.join(WEB_DIR, "dist"), path.join(outDir, "web", "dist"));
-  await buildMobileWeb();
+  await buildMobileWeb(version);
   if (fs.existsSync(path.join(MOBILE_WEB_DIR, "dist"))) {
     console.log("[release] 复制移动端资源");
     await copyDir(path.join(MOBILE_WEB_DIR, "dist"), path.join(outDir, "web-mobile", "dist"));

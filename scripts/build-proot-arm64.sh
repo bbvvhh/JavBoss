@@ -29,6 +29,9 @@
 #                      置空则只直连 github.com
 #   BUILD_WEB=1        先用 npm 重新构建 web/dist **与** web-mobile/dist
 #                      （默认复用仓库里已有的两个 dist）
+#                      构建移动端时会把 VERSION 注入 VITE_APP_VERSION，「我的 / 关于」
+#                      页显示的版本号才会与包一致；复用旧 dist 则不注入（版本按
+#                      web-mobile/package.json 显示）
 #   SKIP_MOBILE_WEB=1  不打包 web-mobile/dist（默认打包：这包就跑在手机上，
 #                      手机浏览器打开根路径会自动切到移动端界面）
 #   SKIP_FFMPEG=1      不下载/不打包 ffmpeg 与 ffprobe
@@ -397,7 +400,11 @@ if [[ "${BUILD_WEB:-0}" == "1" ]]; then
   need npm
   say "构建前端（web 与 web-mobile 的 npm run build）"
   ( cd "$ROOT_DIR/web" && { [[ -d node_modules ]] || npm install; } && npm run build )
-  ( cd "$ROOT_DIR/web-mobile" && { [[ -d node_modules ]] || npm install; } && npm run build )
+  # 把发布版本注入移动端：Vite 会把 VITE_APP_VERSION 写进产物，「我的 / 关于」
+  # 页显示的版本才会和这个包一致；不注入就回落到 web-mobile/package.json 的 version。
+  ( cd "$ROOT_DIR/web-mobile" && { [[ -d node_modules ]] || npm install; } && VITE_APP_VERSION="$VERSION" npm run build )
+elif [[ "${SKIP_MOBILE_WEB:-0}" != "1" ]]; then
+  say "提示：复用已有 web-mobile/dist，里面固化的版本号不会被改写；要显示 $VERSION 请用 BUILD_WEB=1 重新构建"
 fi
 
 [[ -f "$WEB_DIST/index.html" ]] || die "缺少 web/dist，请先执行：cd web && npm install && npm run build"
