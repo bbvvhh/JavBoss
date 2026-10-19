@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import SubtitlesRoundedIcon from '@mui/icons-material/SubtitlesRounded'
 import videojs from 'video.js'
@@ -13,6 +14,7 @@ import {
   reportVideoPlayback,
 } from '@/api'
 import { getVideoDisplayName } from '@/utils/display'
+import { hasEmbeddedChineseSubtitles } from '@/utils/subtitle'
 import {
   PLAYER_HOTKEY_ACTIONS,
   formatPlayerHotkeyKey,
@@ -67,6 +69,10 @@ export default function PlayerModal({
   const [activeSubtitleId, setActiveSubtitleId] = useState(null)
   const [subtitlePanelOpen, setSubtitlePanelOpen] = useState(false)
   const [subtitleError, setSubtitleError] = useState('')
+  // 全屏：video.js 全屏的是 .video-js 元素，Modal 头部（含字幕入口）会被隐藏；
+  // 这时需要把字幕入口和面板搬进播放器元素内部（playerEl 是它的 DOM 节点）。
+  const [fullscreen, setFullscreen] = useState(false)
+  const [playerEl, setPlayerEl] = useState(null)
   const normalizedHotkeys = useMemo(() => parsePlayerHotkeys(hotkeys), [hotkeys])
   const hotkeyHintLines = useMemo(() => {
     const lines = normalizedHotkeys.map((item) => {
@@ -160,7 +166,14 @@ export default function PlayerModal({
     applyActiveSubtitle()
   }, [activeSubtitleId, subtitles, applyActiveSubtitle])
 
-  // 打开视频时读取本地字幕：有就直接挂上最新的一条，用户可在面板里切换或关闭。
+  // 文件名带 -C 的中文字幕版本，画面里已烧录字幕，默认不自动挂载外部字幕。
+  const autoLoadSubtitle = useMemo(
+    () => !hasEmbeddedChineseSubtitles(getVideoDisplayName(video)),
+    [video]
+  )
+
+  // 打开视频时读取本地字幕：有就直接挂上最新的一条（-C 版本除外），
+  // 用户可在面板里切换或关闭。
   useEffect(() => {
     if (!video?.id) {
       setSubtitles([])
@@ -180,7 +193,9 @@ export default function PlayerModal({
         setSubtitles(data.items)
         setSubtitleJavCode(data.javCode || '')
         const latest = data.items[data.items.length - 1]
-        setActiveSubtitleId(latest ? latest.id : null)
+        // 文件名带 -C 说明画面里已烧录中文字幕，默认不自动挂载外部字幕
+        //（仍可在字幕面板里手动选择）。
+        setActiveSubtitleId(autoLoadSubtitle && latest ? latest.id : null)
       })
       .catch((error) => {
         if (cancelled) return
@@ -193,7 +208,7 @@ export default function PlayerModal({
     return () => {
       cancelled = true
     }
-  }, [video?.id])
+  }, [video?.id, autoLoadSubtitle])
 
   useEffect(() => {
     setHotkeyHintVisible(false)
@@ -317,8 +332,9 @@ export default function PlayerModal({
     })
 
     playerRef.current = player
+    setPlayerEl(player.el())
 
-    const playerEl = player.el()
+    const playerRoot = player.el()
     const savedVolume = (() => {
       try {
         const raw = localStorage.getItem(VOLUME_STORAGE_KEY)
@@ -429,11 +445,11 @@ export default function PlayerModal({
     }
 
     const focusPlayer = () => {
-      playerEl?.focus({ preventScroll: true })
+      playerRoot?.focus({ preventScroll: true })
     }
 
-    if (playerEl && !playerEl.hasAttribute('tabindex')) {
-      playerEl.setAttribute('tabindex', '-1')
+    if (playerRoot && !playerRoot.hasAttribute('tabindex')) {
+      playerRoot.setAttribute('tabindex', '-1')
     }
 
     window.addEventListener('keydown', handleKeyDown, true)
@@ -496,7 +512,9 @@ export default function PlayerModal({
       focusPlayer()
       applySubtitleRef.current?.()
     })
+    const handleFullscreenChange = () => setFullscreen(Boolean(player.isFullscreen()))
     player.on('fullscreenchange', focusPlayer)
+    player.on('fullscreenchange', handleFullscreenChange)
     player.on('volumechange', handleVolumeChange)
     player.on('timeupdate', handleTimeUpdate)
     player.on('pause', handlePause)
@@ -508,6 +526,7 @@ export default function PlayerModal({
       stopPlayback()
       window.removeEventListener('keydown', handleKeyDown, true)
       player.off('fullscreenchange', focusPlayer)
+      player.off('fullscreenchange', handleFullscreenChange)
       player.off('volumechange', handleVolumeChange)
       player.off('timeupdate', handleTimeUpdate)
       player.off('pause', handlePause)
@@ -515,6 +534,8 @@ export default function PlayerModal({
       removeSubtitleTracks()
       player.dispose()
       playerRef.current = null
+      setPlayerEl(null)
+      setFullscreen(false)
     }
   }, [
     video,
@@ -539,6 +560,22 @@ export default function PlayerModal({
   if (!video) return null
 
   const displayName = getVideoDisplayName(video)
+
+  // 字幕面板：非全屏时贴在播放器容器里，全屏时搬进播放器元素内部
+  //（全屏元素是 .video-js，Modal 头部与容器外内容浏览器一律不渲染）。
+  const subtitlePanel = (
+    <PlayerSubtitlePanel
+      key={video.id}
+      video={video}
+      defaultKeyword={defaultSubtitleKeyword}
+      subtitles={subtitles}
+      loading={subtitlesLoading}
+      activeSubtitleId={activeSubtitleId}
+      onSelectSubtitle={setActiveSubtitleId}
+      onSubtitlesChange={setSubtitles}
+      onClose={() => setSubtitlePanelOpen(false)}
+    />
+  )
 
   return (
     <AppModal
@@ -637,20 +674,36 @@ export default function PlayerModal({
             </>
           )}
           {subtitlePanelOpen ? (
-            <div className="absolute right-0 top-0 z-20 h-full w-[330px] max-w-full overflow-hidden rounded-l-md border-l border-zinc-200 shadow-2xl">
-              <PlayerSubtitlePanel
-                key={video.id}
-                video={video}
-                defaultKeyword={defaultSubtitleKeyword}
-                subtitles={subtitles}
-                loading={subtitlesLoading}
-                activeSubtitleId={activeSubtitleId}
-                onSelectSubtitle={setActiveSubtitleId}
-                onSubtitlesChange={setSubtitles}
-                onClose={() => setSubtitlePanelOpen(false)}
-              />
-            </div>
+            fullscreen && playerEl ? (
+              createPortal(
+                <div className="absolute right-0 top-0 z-30 h-full w-[330px] max-w-full overflow-hidden border-l border-zinc-200 bg-white shadow-2xl">
+                  {subtitlePanel}
+                </div>,
+                playerEl
+              )
+            ) : (
+              <div className="absolute right-0 top-0 z-20 h-full w-[330px] max-w-full overflow-hidden rounded-l-md border-l border-zinc-200 shadow-2xl">
+                {subtitlePanel}
+              </div>
+            )
           ) : null}
+          {/* 全屏时 Modal 头部被隐藏（含字幕入口），这里在播放器元素内补一个，
+              点开即可选择 / 下载 / 关闭字幕。 */}
+          {fullscreen && playerEl && !subtitlePanelOpen
+            ? createPortal(
+                <button
+                  type="button"
+                  aria-label={zh('在线字幕', 'Online subtitles')}
+                  title={zh('在线字幕', 'Online subtitles')}
+                  onClick={() => setSubtitlePanelOpen(true)}
+                  className="absolute right-3 top-3 z-30 inline-flex h-8 items-center gap-1 rounded-full bg-black/60 px-2.5 text-xs font-medium text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                >
+                  <SubtitlesRoundedIcon sx={{ fontSize: 16 }} />
+                  {subtitles.length > 0 ? <span>{subtitles.length}</span> : null}
+                </button>,
+                playerEl
+              )
+            : null}
         </div>
       </div>
     </AppModal>

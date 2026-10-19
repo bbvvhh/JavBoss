@@ -55,6 +55,8 @@ export default function PlayerControls({
   fullscreen = false,
   onCapture,
   capturing = false,
+  onOpenSubtitles,
+  subtitleActive = false,
 }) {
   const trackRef = useRef(null)
   const dragRef = useRef(null)
@@ -398,6 +400,20 @@ export default function PlayerControls({
         >
           {rate}x
         </button>
+
+        {/* 全屏时播放器上方的页面头部（含字幕入口）会被浏览器隐藏，这里补一个
+            字幕入口，进入「在线字幕」抽屉即可选择 / 下载 / 关闭字幕。 */}
+        {overlay && onOpenSubtitles ? (
+          <button
+            type="button"
+            onClick={onOpenSubtitles}
+            aria-label={zh('字幕', 'Subtitles')}
+            aria-pressed={Boolean(subtitleActive)}
+            className={`${BUTTON_CLASS} ${subtitleActive ? 'text-brand-ink' : ''}`}
+          >
+            <Icon name="subtitles" size={18} />
+          </button>
+        ) : null}
 
         {onCapture ? (
           <button

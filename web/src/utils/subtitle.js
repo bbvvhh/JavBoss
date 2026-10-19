@@ -62,3 +62,21 @@ export function subtitleLanguageLabel(item) {
   const language = String(item?.language || item?.languages || '').trim()
   return language || zh('未知语言', 'Unknown language')
 }
+
+/**
+ * 文件名是否表示「自带中文字幕」的版本（番号后缀 -C）。
+ *
+ * 这类文件的画面里已经烧录了中文字幕，播放时默认不自动挂载外部字幕
+ * （仍可在字幕面板里手动选择）。判定只看文件名主干，并要求 -C 是独立片段，
+ * 避免把 `-CARIB` 之类的厂牌后缀误判成中文字幕版本。
+ */
+export function hasEmbeddedChineseSubtitles(filename) {
+  const base = String(filename || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .split('/')
+    .pop()
+  if (!base) return false
+  const stem = base.replace(/\.[^./]+$/, '')
+  return /-c(?=[-_.\s]|$)/i.test(stem)
+}

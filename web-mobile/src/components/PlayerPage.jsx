@@ -33,6 +33,7 @@ import {
   writeProgress,
 } from '@/utils/progress'
 import { formatSeekClock, formatSeekDelta } from '@/utils/seekMath'
+import { hasEmbeddedChineseSubtitles } from '@/utils/subtitle'
 import { getErrorMessage } from '@/utils/errors'
 import { zh } from '@/utils/i18n'
 
@@ -135,7 +136,14 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
     applyActiveSubtitle()
   }, [activeSubtitleId, subtitles, applyActiveSubtitle])
 
-  // 打开视频时读取本地字幕：有就直接挂上最新的一条，可在字幕抽屉里切换或关闭。
+  // 文件名带 -C 的中文字幕版本，画面里已烧录字幕，默认不自动挂载外部字幕。
+  const autoLoadSubtitle = useMemo(
+    () => !hasEmbeddedChineseSubtitles(getVideoDisplayName(video)),
+    [video]
+  )
+
+  // 打开视频时读取本地字幕：有就直接挂上最新的一条（-C 版本除外），
+  // 可在字幕抽屉里切换或关闭。
   useEffect(() => {
     if (!video?.id) {
       setSubtitles([])
@@ -152,7 +160,9 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
         setSubtitles(data.items)
         setSubtitleJavCode(data.javCode || '')
         const latest = data.items[data.items.length - 1]
-        setActiveSubtitleId(latest ? latest.id : null)
+        // 文件名带 -C 说明画面里已烧录中文字幕，默认不自动挂载外部字幕
+        //（仍可在字幕抽屉里手动选择）。
+        setActiveSubtitleId(autoLoadSubtitle && latest ? latest.id : null)
       })
       .catch(() => {
         if (cancelled) return
@@ -164,7 +174,7 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
     return () => {
       cancelled = true
     }
-  }, [video?.id])
+  }, [video?.id, autoLoadSubtitle])
 
   // 续播位置：以服务端播放记录为准，读不到（离线 / 记录不存在）时用本机
   // localStorage 进度兜底；关掉「续播」开关则既不读也不写。
@@ -548,7 +558,30 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
       fullscreen={fullscreen}
       onCapture={handleCapture}
       capturing={capturing}
+      onOpenSubtitles={() => setSubtitleSheetOpen(true)}
+      subtitleActive={activeSubtitleId != null}
     />
+  )
+
+  // 字幕抽屉：非全屏时挂在页面里；全屏时随控制条一起搬进播放器元素内部
+  //（否则抽屉在 .video-js 外面，全屏下根本渲染不出来）。
+  const subtitleSheet = (
+    <BottomSheet
+      open={subtitleSheetOpen}
+      title={zh('在线字幕', 'Online subtitles')}
+      height="78vh"
+      onClose={() => setSubtitleSheetOpen(false)}
+    >
+      <SubtitleSheet
+        video={video}
+        defaultKeyword={defaultSubtitleKeyword}
+        subtitles={subtitles}
+        loading={subtitlesLoading}
+        activeSubtitleId={activeSubtitleId}
+        onSelectSubtitle={setActiveSubtitleId}
+        onSubtitlesChange={setSubtitles}
+      />
+    </BottomSheet>
   )
 
   return (
@@ -602,6 +635,7 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
             <>
               {overlayPills}
               {controls}
+              {subtitleSheet}
             </>,
             portalTarget
           )
@@ -763,22 +797,8 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
         </p>
       </div>
 
-      <BottomSheet
-        open={subtitleSheetOpen}
-        title={zh('在线字幕', 'Online subtitles')}
-        height="78vh"
-        onClose={() => setSubtitleSheetOpen(false)}
-      >
-        <SubtitleSheet
-          video={video}
-          defaultKeyword={defaultSubtitleKeyword}
-          subtitles={subtitles}
-          loading={subtitlesLoading}
-          activeSubtitleId={activeSubtitleId}
-          onSelectSubtitle={setActiveSubtitleId}
-          onSubtitlesChange={setSubtitles}
-        />
-      </BottomSheet>
+      {/* 全屏时抽屉已随控制条搬进播放器元素，这里只在非全屏渲染。 */}
+      {portalTarget ? null : subtitleSheet}
     </div>
   )
 }
