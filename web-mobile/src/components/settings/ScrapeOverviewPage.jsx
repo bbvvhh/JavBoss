@@ -1,6 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { fetchDirectories, organizeJavTags, updateDirectory } from '@/api'
+import {
+  cancelJavScrapeBatch,
+  fetchDirectories,
+  fetchJavScrapeBatchStatus,
+  organizeJavTags,
+  startJavScrapeBatch,
+  updateDirectory,
+} from '@/api'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import Icon from '@/components/Icons'
 import SettingsPage from '@/components/settings/SettingsPage'
@@ -35,6 +42,10 @@ export default function ScrapeSettingsPage({ onClose }) {
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState('')
   const [organizeOpen, setOrganizeOpen] = useState(false)
+  const [batchStatus, setBatchStatus] = useState(null)
+  const [batchError, setBatchError] = useState('')
+  const [startingBatch, setStartingBatch] = useState(false)
+  const batchPollRef = useRef(null)
 
   const { data, loading, error, reload } = useAsyncData(() => fetchDirectories(), [])
 
@@ -65,6 +76,63 @@ export default function ScrapeSettingsPage({ onClose }) {
     const timer = window.setInterval(() => reload(), 1500)
     return () => window.clearInterval(timer)
   }, [anyScanning, reload])
+
+  const refreshBatchStatus = useCallback(async () => {
+    try {
+      setBatchStatus(await fetchJavScrapeBatchStatus())
+    } catch (err) {
+      setBatchError(getErrorMessage(err))
+    }
+  }, [])
+
+  useEffect(() => {
+    refreshBatchStatus()
+  }, [refreshBatchStatus])
+
+  const batchRunning = Boolean(batchStatus?.running)
+
+  useEffect(() => {
+    if (!batchRunning) {
+      if (batchPollRef.current) {
+        window.clearInterval(batchPollRef.current)
+        batchPollRef.current = null
+      }
+      return undefined
+    }
+    if (batchPollRef.current) return undefined
+    batchPollRef.current = window.setInterval(refreshBatchStatus, 1500)
+    return () => {
+      if (batchPollRef.current) {
+        window.clearInterval(batchPollRef.current)
+        batchPollRef.current = null
+      }
+    }
+  }, [batchRunning, refreshBatchStatus])
+
+  const startBatch = async () => {
+    setStartingBatch(true)
+    setBatchError('')
+    try {
+      setBatchStatus(await startJavScrapeBatch())
+      showToast(zh('已开始一键刮削', 'Batch scrape started'))
+      reload()
+    } catch (err) {
+      setBatchError(getErrorMessage(err))
+      refreshBatchStatus()
+    } finally {
+      setStartingBatch(false)
+    }
+  }
+
+  const stopBatch = async () => {
+    setBatchError('')
+    try {
+      setBatchStatus(await cancelJavScrapeBatch())
+      showToast(zh('已请求停止', 'Stop requested'))
+    } catch (err) {
+      setBatchError(getErrorMessage(err))
+    }
+  }
 
   const run = async (task, message) => {
     setBusy(true)
@@ -122,12 +190,109 @@ export default function ScrapeSettingsPage({ onClose }) {
             'Scraping works video by video: metadata is matched by filename or code during a scan, and background jobs fill in missing titles, actors, tags and covers. Each pass tries once; failures caused by network hiccups wait for the next round.'
           )}
         </p>
-        <p className="mt-2 text-[12.5px] leading-relaxed text-zinc-600">
+      </div>
+
+      <h3 className="flex items-center gap-2 px-4 pb-1.5 pt-4 text-[12px] font-semibold text-zinc-500">
+        {zh('一键刮削', 'Batch scrape')}
+        {batchRunning ? (
+          <span className="font-normal text-brand">{zh('进行中', 'Running')}</span>
+        ) : null}
+      </h3>
+
+      <div className="mx-3 rounded-card bg-white px-4 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.05)]">
+        <p className="text-[12px] leading-relaxed text-zinc-500">
           {zh(
-            '这里没有「一键全部刮削」—— 后端不提供这个接口。要立刻刮某个视频，请回到列表长按它 →「刮削设置」。',
-            'There is no “scrape everything” button because the backend offers no such endpoint. To scrape one video right now, long-press it in the list → “Scrape settings”.'
+            '对尚未关联番号的视频按文件名或番号重新匹配一次元数据。任务在后台逐个执行，关闭页面不会中断；已标记「跳过刮削」的视频不会被处理。',
+            'Re-matches metadata for videos not linked to a JAV code yet. The job runs in the background and keeps going after this page closes; videos marked "skip scraping" are left untouched.'
           )}
         </p>
+
+        {batchStatus ? (
+          <div className="mt-3">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-200">
+              <div
+                className="h-full rounded-full bg-brand transition-all"
+                style={{
+                  width: `${
+                    batchStatus.total
+                      ? Math.min(
+                          100,
+                          Math.round((Number(batchStatus.processed || 0) / batchStatus.total) * 100)
+                        )
+                      : 0
+                  }%`,
+                }}
+              />
+            </div>
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11.5px] text-zinc-500">
+              <span className="tabular-nums">
+                {zh('进度', 'Progress')} {batchStatus.processed || 0}/{batchStatus.total || 0}
+              </span>
+              <span className="text-emerald-600">
+                {zh('已刮削', 'Scraped')} {batchStatus.linked || 0}
+              </span>
+              <span className="text-amber-600">
+                {zh('未匹配', 'Unmatched')} {batchStatus.failed || 0}
+              </span>
+            </div>
+            {batchRunning && (batchStatus.current_code || batchStatus.current_file) ? (
+              <p className="mt-1.5 truncate text-[11px] text-zinc-400">
+                {[batchStatus.current_code, batchStatus.current_file].filter(Boolean).join(' · ')}
+              </p>
+            ) : null}
+            {batchStatus.errors?.length ? (
+              <details className="mt-1.5 text-[11px] text-zinc-500">
+                <summary className="cursor-pointer">
+                  {zh(
+                    `失败详情（${batchStatus.errors.length}）`,
+                    `Failures (${batchStatus.errors.length})`
+                  )}
+                </summary>
+                <ul className="mt-1 space-y-1">
+                  {batchStatus.errors.slice(-5).map((item, index) => (
+                    <li key={`${index}-${item}`} className="truncate" title={item}>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
+          </div>
+        ) : null}
+
+        {batchError ? <p className="mt-2 text-[12px] text-red-600">{batchError}</p> : null}
+
+        <div className="mt-3 flex gap-2.5">
+          <button
+            type="button"
+            onClick={startBatch}
+            disabled={batchRunning || startingBatch}
+            className={buttonClass('primary', 'h-10 flex-1')}
+          >
+            {batchRunning
+              ? zh('刮削中…', 'Running…')
+              : startingBatch
+                ? zh('启动中…', 'Starting…')
+                : zh('一键刮削', 'Scrape now')}
+          </button>
+          {batchRunning ? (
+            <button
+              type="button"
+              onClick={stopBatch}
+              className={buttonClass('danger', 'h-10 px-4')}
+            >
+              {zh('停止', 'Stop')}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={refreshBatchStatus}
+              className={buttonClass('secondary', 'h-10 px-4')}
+            >
+              {zh('刷新', 'Refresh')}
+            </button>
+          )}
+        </div>
       </div>
 
       <h3 className="flex items-center gap-2 px-4 pb-1.5 pt-4 text-[12px] font-semibold text-zinc-500">

@@ -326,6 +326,23 @@ export async function cancelSubtitleBatchDownload() {
   return data?.status || null
 }
 
+/* ---------------- 一键刮削：对未关联番号的视频批量重试 ---------------- */
+
+export async function startJavScrapeBatch() {
+  const data = await requestJSON('POST', `/jav/scrape/unscraped`)
+  return data?.status || null
+}
+
+export async function fetchJavScrapeBatchStatus() {
+  const data = await requestJSON('GET', `/jav/scrape/unscraped`, { cache: 'no-store' })
+  return data?.status || null
+}
+
+export async function cancelJavScrapeBatch() {
+  const data = await requestJSON('POST', `/jav/scrape/unscraped/cancel`)
+  return data?.status || null
+}
+
 /* ---------------- 刮削设置（只写数据库） ---------------- */
 
 export async function updateVideoJavScrapeSettings(videoId, { mode = 'auto', code = '' } = {}) {

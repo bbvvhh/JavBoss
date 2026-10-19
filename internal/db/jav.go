@@ -2835,6 +2835,29 @@ func videosForJavScanQuery(ctx context.Context) *gorm.DB {
 		Select("vl.id AS location_id, vl.video_id, COALESCE(NULLIF(vl.filename, ''), vl.relative_path) AS filename, vl.jav_id, j.code AS jav_code, vl.updated_at, v.duration_sec, v.jav_scrape_override")
 }
 
+// ListUnscrapedVideoLocationIDs returns active video locations that are not yet
+// linked to any JAV metadata and are eligible for a manual batch scrape.
+//
+// Locations whose video is explicitly marked :skip are excluded because the
+// user asked the scraper to leave them alone.
+func ListUnscrapedVideoLocationIDs(ctx context.Context) ([]int64, error) {
+	var ids []int64
+	if err := common.DB.WithContext(ctx).
+		Table("video_location vl").
+		Joins("JOIN directory d ON d.id = vl.directory_id").
+		Joins("JOIN video v ON v.id = vl.video_id").
+		Where("COALESCE(vl.is_delete, 0) = 0").
+		Where("COALESCE(d.is_delete, 0) = 0").
+		Where("COALESCE(d.missing, 0) = 0").
+		Where("vl.jav_id IS NULL").
+		Where("COALESCE(v.jav_scrape_override, '') <> ?", models.JavScrapeOverrideSkip).
+		Order("vl.updated_at DESC, vl.id DESC").
+		Pluck("vl.id", &ids).Error; err != nil {
+		return nil, fmt.Errorf("list unscraped video locations: %w", err)
+	}
+	return ids, nil
+}
+
 // GetJavByCode fetches a jav record by code.
 func GetJavByCode(ctx context.Context, code string) (*models.Jav, error) {
 	var javRec models.Jav

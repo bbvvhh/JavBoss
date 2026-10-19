@@ -514,6 +514,28 @@ export async function cancelSubtitleBatchDownload() {
   return data?.status || null
 }
 
+// 一键刮削：对媒体库里尚未关联番号的视频手动批量重试刮削。
+export async function startJavScrapeBatch() {
+  const res = await apiFetch('/jav/scrape/unscraped', { method: 'POST' })
+  if (!res.ok) throw await apiError(res)
+  const data = await res.json()
+  return data?.status || null
+}
+
+export async function fetchJavScrapeBatchStatus() {
+  const res = await apiFetch('/jav/scrape/unscraped', { cache: 'no-store' })
+  if (!res.ok) throw await apiError(res)
+  const data = await res.json()
+  return data?.status || null
+}
+
+export async function cancelJavScrapeBatch() {
+  const res = await apiFetch('/jav/scrape/unscraped/cancel', { method: 'POST' })
+  if (!res.ok) throw await apiError(res)
+  const data = await res.json()
+  return data?.status || null
+}
+
 export async function updateVideoCover(videoId, screenshotName) {
   const res = await apiFetch(`/videos/${videoId}/cover`, {
     method: 'PUT',

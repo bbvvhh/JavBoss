@@ -21,6 +21,7 @@ import (
 	"javboss/internal/jav"
 	"javboss/internal/manager"
 	"javboss/internal/models"
+	"javboss/internal/service"
 	"javboss/internal/util"
 )
 
@@ -433,6 +434,39 @@ func organizeJavTags(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, result)
+}
+
+// startJavScrapeBatch launches the one-click scrape of every unscraped video.
+func startJavScrapeBatch(c *gin.Context) {
+	status, err := service.StartJavScrapeBatch()
+	if err != nil {
+		if errors.Is(err, service.ErrJavScrapeBatchRunning) {
+			c.JSON(http.StatusConflict, gin.H{
+				"error_zh": "一键刮削正在进行中",
+				"error_en": "A batch scrape is already running",
+				"status":   status,
+			})
+			return
+		}
+		logging.Error("start jav scrape batch error: %v", err)
+		respondLocalizedError(c, http.StatusInternalServerError, "启动一键刮削失败", "Failed to start the batch scrape")
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"status": status})
+}
+
+// getJavScrapeBatch reports the progress of the one-click scraper.
+func getJavScrapeBatch(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": service.JavScrapeBatchSnapshot()})
+}
+
+// cancelJavScrapeBatch stops a running batch scrape.
+func cancelJavScrapeBatch(c *gin.Context) {
+	canceled := service.CancelJavScrapeBatch()
+	c.JSON(http.StatusOK, gin.H{
+		"canceled": canceled,
+		"status":   service.JavScrapeBatchSnapshot(),
+	})
 }
 
 func listJavTagCategories(c *gin.Context) {

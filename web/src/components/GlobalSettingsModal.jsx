@@ -8,6 +8,7 @@ import ExtensionTokenSettings from '@/components/ExtensionTokenSettings'
 import DirectoryManager from '@/components/DirectoryManager'
 import BackupSettingsPanel from '@/components/BackupSettingsPanel'
 import UpdateSettingsPanel from '@/components/UpdateSettingsPanel'
+import JavScrapeBatchPanel from '@/components/JavScrapeBatchPanel'
 import AppModal from '@/components/AppModal'
 import PlayerSettingsModal from '@/components/PlayerSettingsModal'
 import SubtitleSettingsPanel from '@/components/SubtitleSettingsPanel'
@@ -31,7 +32,7 @@ const SETTINGS_SECTIONS = [
   {
     id: 'scrape',
     title: { zh: '刮削', en: 'Scraping' },
-    summary: { zh: '封面缺失时的补下行为', en: 'Cover refetch behaviour' },
+    summary: { zh: '一键刮削与封面补下', en: 'Batch scraping and cover refetch' },
   },
   {
     id: 'shortcuts',
@@ -684,6 +685,7 @@ export default function GlobalSettingsModal({
 
     return (
       <div className="space-y-5">
+        <JavScrapeBatchPanel onToast={onToast} />
         <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <div className="space-y-4">
             <div>

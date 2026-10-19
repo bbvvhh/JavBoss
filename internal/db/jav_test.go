@@ -3990,6 +3990,68 @@ func TestMarkJavSampleImagesNotFound(t *testing.T) {
 	}
 }
 
+func TestListUnscrapedVideoLocationIDs(t *testing.T) {
+	gdb := openTestDB(t)
+	ctx := context.Background()
+	now := time.Unix(1710000000, 0).UTC()
+
+	activeDir := models.Directory{Path: "/media/active"}
+	deletedDir := models.Directory{Path: "/media/deleted", IsDelete: true}
+	missingDir := models.Directory{Path: "/media/missing", Missing: true}
+	for name, dir := range map[string]*models.Directory{
+		"active":  &activeDir,
+		"deleted": &deletedDir,
+		"missing": &missingDir,
+	} {
+		if err := gdb.Create(dir).Error; err != nil {
+			t.Fatalf("create %s directory: %v", name, err)
+		}
+	}
+
+	makeVideo := func(fingerprint, override string) models.Video {
+		video := models.Video{Fingerprint: fingerprint, JavScrapeOverride: override}
+		if err := gdb.Create(&video).Error; err != nil {
+			t.Fatalf("create video %s: %v", fingerprint, err)
+		}
+		return video
+	}
+	makeLocation := func(videoID, dirID int64, filename string) *models.VideoLocation {
+		location, err := UpsertVideoLocation(ctx, videoID, dirID, filename, now)
+		if err != nil {
+			t.Fatalf("create location %s: %v", filename, err)
+		}
+		return location
+	}
+
+	// 未关联番号：应被选中。
+	wanted := makeLocation(makeVideo("fp-wanted", "").ID, activeDir.ID, "wanted.mp4")
+	// 已关联番号：排除。
+	linked := makeLocation(makeVideo("fp-linked", "").ID, activeDir.ID, "linked.mp4")
+	if err := gdb.Model(&models.VideoLocation{}).Where("id = ?", linked.ID).
+		Update("jav_id", int64(7)).Error; err != nil {
+		t.Fatalf("link location: %v", err)
+	}
+	// 位置已删除：排除。
+	removed := makeLocation(makeVideo("fp-removed", "").ID, activeDir.ID, "removed.mp4")
+	if err := gdb.Model(&models.VideoLocation{}).Where("id = ?", removed.ID).
+		Update("is_delete", true).Error; err != nil {
+		t.Fatalf("mark location deleted: %v", err)
+	}
+	// 目录已删除或已丢失：排除。
+	makeLocation(makeVideo("fp-deleted-dir", "").ID, deletedDir.ID, "deleted-dir.mp4")
+	makeLocation(makeVideo("fp-missing-dir", "").ID, missingDir.ID, "missing-dir.mp4")
+	// 标记「跳过刮削」：排除。
+	makeLocation(makeVideo("fp-skip", models.JavScrapeOverrideSkip).ID, activeDir.ID, "skip.mp4")
+
+	ids, err := ListUnscrapedVideoLocationIDs(ctx)
+	if err != nil {
+		t.Fatalf("list unscraped locations: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != wanted.ID {
+		t.Fatalf("unscraped ids = %v, want [%d]", ids, wanted.ID)
+	}
+}
+
 func openTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
