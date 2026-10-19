@@ -21,9 +21,6 @@ const SYNC_INTERVAL_MS = 200
 /** 步进 / 换档提示停留时长。 */
 const HINT_MS = 900
 
-/** 常驻倍速档位。原来是 video.js 控制条上的倍速菜单，现在由这个按钮循环切换。 */
-const RATE_OPTIONS = [1, 1.25, 1.5, 2, 0.5]
-
 const BUTTON_CLASS =
   'grid h-8 w-9 flex-none place-items-center rounded-[8px] text-zinc-200 active:bg-white/15 disabled:opacity-40'
 
@@ -31,8 +28,9 @@ const BUTTON_CLASS =
  * 自绘播放控制条：进度 + 播放控制。
  *
  * video.js 自带控制条在移动端被整体隐藏了（见 index.css），所以这里要把它原有的
- * 功能都接过来：进度条、当前/总时长、±10s、播放暂停、静音、常驻倍速、画中画、
- * 全屏。视频播放本身仍然由 video.js 驱动，这里只是换了一层皮。
+ * 功能都接过来：进度条、当前/总时长、±10s、播放暂停、静音、画中画、全屏。
+ * 视频播放本身仍然由 video.js 驱动，这里只是换了一层皮。
+ * 常驻倍速入口已移除：变速只由播放页「长按加速」手势临时提供。
  *
  * 进度部分的两条设计约束（都是真机反馈换来的）：
  * - 拖动时**不做实时 seek**，只在松手时定位一次。边拖边 seek 会让浏览器/转码流
@@ -70,7 +68,6 @@ export default function PlayerControls({
   const [hint, setHint] = useState('')
   const [paused, setPaused] = useState(true)
   const [muted, setMuted] = useState(false)
-  const [rate, setRate] = useState(1)
   const [pip, setPip] = useState(false)
 
   useEffect(() => {
@@ -82,8 +79,6 @@ export default function PlayerControls({
       setBuffered(Number.isFinite(bufferedValue) ? Math.min(Math.max(bufferedValue, 0), 1) : 0)
       setPaused(Boolean(player.paused()))
       setMuted(Boolean(player.muted()))
-      const currentRate = Number(player.playbackRate())
-      setRate(Number.isFinite(currentRate) ? currentRate : 1)
       setPip(Boolean(player.isInPictureInPicture?.()))
       // 拖动中位置由手指决定，不能被 timeupdate 抢回去。
       if (dragRef.current) return
@@ -101,7 +96,6 @@ export default function PlayerControls({
       'play',
       'pause',
       'volumechange',
-      'ratechange',
       'enterpictureinpicture',
       'leavepictureinpicture',
     ]
@@ -261,15 +255,6 @@ export default function PlayerControls({
     player.muted(!player.muted())
   }, [player])
 
-  const cycleRate = useCallback(() => {
-    if (!player) return
-    const current = Number(player.playbackRate()) || 1
-    const index = RATE_OPTIONS.indexOf(current)
-    const next = RATE_OPTIONS[(index + 1) % RATE_OPTIONS.length]
-    player.playbackRate(next)
-    showHint(`${zh('倍速', 'Speed')} ${next}x`)
-  }, [player, showHint])
-
   const togglePip = useCallback(() => {
     if (!player) return
     const result = player.isInPictureInPicture?.()
@@ -389,16 +374,6 @@ export default function PlayerControls({
           className={BUTTON_CLASS}
         >
           <Icon name={muted ? 'volumeMute' : 'volume'} size={18} />
-        </button>
-
-        <button
-          type="button"
-          onClick={cycleRate}
-          disabled={!player}
-          aria-label={zh('切换倍速', 'Playback speed')}
-          className="h-8 min-w-[40px] flex-none rounded-[8px] px-1.5 text-[11.5px] font-semibold tabular-nums text-zinc-200 active:bg-white/15"
-        >
-          {rate}x
         </button>
 
         {/* 全屏时播放器上方的页面头部（含字幕入口）会被浏览器隐藏，这里补一个

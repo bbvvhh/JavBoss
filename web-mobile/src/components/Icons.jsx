@@ -205,6 +205,13 @@ const PATHS = {
   ),
   download: <path d="M12 4v11m0 0-4-4m4 4 4-4M4.5 19.5h15" {...STROKE} />,
   list: <path d="M4 7h16M4 12h16M4 17h10" {...STROKE} strokeWidth={2} />,
+  // 稍后观看：书签描边 / 实心两种状态（实心表示已在列表里）。
+  bookmark: (
+    <path d="M6.5 4.5h11a1 1 0 0 1 1 1v14.2L12 15.8 5.5 19.7V5.5a1 1 0 0 1 1-1Z" {...STROKE} />
+  ),
+  bookmarkFilled: (
+    <path d="M6.5 4.5h11a1 1 0 0 1 1 1v14.2L12 15.8 5.5 19.7V5.5a1 1 0 0 1 1-1Z" {...FILLED} />
+  ),
   logout: (
     <path
       d="M14 5.5H6.5A1.5 1.5 0 0 0 5 7v10a1.5 1.5 0 0 0 1.5 1.5H14M17 8.5 20.5 12 17 15.5M10 12h10.5"

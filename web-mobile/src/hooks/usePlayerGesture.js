@@ -6,6 +6,8 @@ import {
   GESTURE_BOOST,
   GESTURE_PENDING,
   GESTURE_SEEK,
+  isDoubleTap,
+  isTapGesture,
   resolvePendingGesture,
 } from '@/utils/playerGesture'
 import { seekTimeForDrag } from '@/utils/seekMath'
@@ -39,6 +41,7 @@ const CLICK_PASS_SELECTOR = '.jb-controls, .vjs-control-bar, button, a, input, [
  *   （向上加速、向下减速），横向滑动不做任何事，松手还原原速。
  * - 不到 1 秒就横向滑动 → 进度模式：拖动画面调进度，HUD 显示目标时间，松手定位。
  * - 竖向大幅度滑动（还没进入倍速时）→ 手势作废，什么都不做。
+ * - 快速双击（两次点击间隔短、落点近）→ `onDoubleTap`，由播放页切换播放 / 暂停。
  *
  * 为什么必须「锁定模式 + 分轴」：真机上反复出现过同一次滑动既改了倍速、
  * 又把进度条拖走（全屏下尤其明显）。现在横向和竖向各归各，即使有系统 /
@@ -63,6 +66,7 @@ export default function usePlayerGesture({
   onBoostSpeed,
   onBoostEnd,
   onSeekCommit,
+  onDoubleTap,
 } = {}) {
   const [boost, setBoost] = useState(null)
   const [seek, setSeek] = useState(null)
@@ -71,6 +75,8 @@ export default function usePlayerGesture({
   const timerRef = useRef(null)
   const suppressClickRef = useRef(false)
   const suppressTimerRef = useRef(null)
+  // 上一次「点击」的位置与时间：再收到一次够近、够快的点击就判定为双击。
+  const lastTapRef = useRef(null)
   // 已经下发给播放器的倍速。pointermove 一帧可能来好几次，用 ref 同步去重，
   // 不能依赖 state（React 还没重渲染时 boost 还是旧值）。
   const appliedRef = useRef(null)
@@ -85,6 +91,7 @@ export default function usePlayerGesture({
       onBoostSpeed,
       onBoostEnd,
       onSeekCommit,
+      onDoubleTap,
     }
   })
 
@@ -131,6 +138,8 @@ export default function usePlayerGesture({
       setActive(false)
 
       if (state.mode === GESTURE_BOOST) {
+        // 进入过倍速的手势不再参与双击判定，避免「长按后紧接着再点一下」被误判。
+        lastTapRef.current = null
         appliedRef.current = null
         setBoost(null)
         armClickSuppression()
@@ -138,11 +147,30 @@ export default function usePlayerGesture({
         return
       }
       if (state.mode === GESTURE_SEEK) {
+        lastTapRef.current = null
         setSeek(null)
         // 拖动（>14px）通常不会生成 click，但真机上有例外；定位完再被当成
         // 「点了一下」而暂停播放，体验会很差，所以一并拦掉。
         armClickSuppression()
         if (commit && Number.isFinite(state.target)) latest.current.onSeekCommit?.(state.target)
+        return
+      }
+
+      // 到这里只剩 PENDING：按下后既没长按成倍速、也没横滑成进度，就是一次点击。
+      // 用「起落点时间 / 位移」确认它确实够短够小（挡掉按住不放再抬起这类情况），
+      // 再和上一次点击比对，满足间隔与距离就算双击。
+      const up = { x: event.clientX, y: event.clientY, time: performance.now() }
+      const down = { x: state.x, y: state.y, time: state.time }
+      if (commit && isTapGesture(down, up)) {
+        if (isDoubleTap(lastTapRef.current, up)) {
+          // 双击成立后清掉上一次点击：避免三连击被拆成两次双击。
+          lastTapRef.current = null
+          latest.current.onDoubleTap?.()
+        } else {
+          lastTapRef.current = up
+        }
+      } else {
+        lastTapRef.current = null
       }
     },
     [armClickSuppression, clearTimer]
@@ -169,14 +197,24 @@ export default function usePlayerGesture({
       //（多指等边界情况下漏掉 pointerup 时，提示不会一直挂在画面上）。
       clearClickSuppression()
       setSeek(null)
-      if (event.pointerType === 'mouse' && event.button !== 0) return
-      if (event.target?.closest?.(SKIP_SELECTOR)) return
+      // 点在控件上 / 非左键：这次触摸不参与双击判定，顺手把上一次点击记录清掉，
+      // 免得「先点画面、再点控件、又点画面」被串成一次双击。
+      if (event.pointerType === 'mouse' && event.button !== 0) {
+        lastTapRef.current = null
+        return
+      }
+      if (event.target?.closest?.(SKIP_SELECTOR)) {
+        lastTapRef.current = null
+        return
+      }
       if (stateRef.current) return
 
       stateRef.current = {
         id: event.pointerId,
         x: event.clientX,
         y: event.clientY,
+        // 按下的时间戳，用于把「快速点击」和「按住不放」区分开（双击判定要它）。
+        time: performance.now(),
         lastX: event.clientX,
         lastY: event.clientY,
         // 长按成立那一刻的纵坐标，作为换档的原点（避免把长按期间的晃动算进去）

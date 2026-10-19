@@ -4,13 +4,16 @@ import videojs from 'video.js'
 import 'video.js/dist/video-js.css'
 
 import {
+  addVideoWatchLater,
   clearVideoPlayback,
   createVideoScreenshot,
   fetchPlaybackInfo,
   fetchVideoPlayback,
   fetchVideoSubtitleVTT,
   fetchVideoSubtitles,
+  fetchVideoWatchLater,
   incrementVideoPlayCount,
+  removeVideoWatchLater,
   reportVideoPlayback,
 } from '@/api'
 import BottomSheet from '@/components/BottomSheet'
@@ -67,6 +70,9 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
   const [subtitleSheetOpen, setSubtitleSheetOpen] = useState(false)
   const [subtitleError, setSubtitleError] = useState('')
   const [subtitleJavCode, setSubtitleJavCode] = useState('')
+  // 稍后观看：按钮高亮与否以服务端为准，打开视频时读一次。
+  const [inWatchLater, setInWatchLater] = useState(false)
+  const [watchLaterBusy, setWatchLaterBusy] = useState(false)
 
   // 默认搜索关键词永远是 jav 表的 code（番号），本地文件名只用于
   // 「哪份字幕更合适」的匹配。优先用服务端解析出的 jav_code。
@@ -212,6 +218,23 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
     }
   }, [video?.id, requestedStart])
 
+  // 稍后观看状态：换视频时重新读一次；读不到就按「不在列表」显示，不阻塞播放。
+  useEffect(() => {
+    setInWatchLater(false)
+    if (!video?.id) return undefined
+    let cancelled = false
+    fetchVideoWatchLater(video.id)
+      .then((value) => {
+        if (!cancelled) setInWatchLater(value)
+      })
+      .catch(() => {
+        /* 读取失败保持默认，用户点按后再由服务端纠正 */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [video?.id])
+
   // 长按加速的本机偏好读一次就够：播放页是全屏浮层，要改设置必须先关掉它。
   const [boostEnabled] = useState(() => isBoostEnabled())
   const [boostSpeed] = useState(() => readBoostSpeed())
@@ -240,10 +263,17 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
       // 控制条（含进度条）必须保持隐藏（见下面 jb-boost 的说明）。
     },
     onBoostSpeed: (value) => playerRef.current?.playbackRate(value),
-    // 松手即还原：长按只做临时加速，常驻倍速仍然由控制条上的倍速按钮管。
+    // 松手即还原：长按只做临时加速，不写任何持久设置（常驻倍速入口已移除）。
     onBoostEnd: () => playerRef.current?.playbackRate(baseRateRef.current),
     // 拖画面调进度：拖动期间不动视频，松手才定位一次（避免反复重新加载）。
     onSeekCommit: (time) => playerRef.current?.currentTime(time),
+    // 双击画面：切换播放 / 暂停。竖屏、横屏、全屏都走同一套 pointer 事件。
+    onDoubleTap: () => {
+      const current = playerRef.current
+      if (!current || current.isDisposed()) return
+      if (current.paused()) current.play()?.catch(() => {})
+      else current.pause()
+    },
   })
 
   // 截图：把当前播放位置交给服务端抽帧，产出进「截图列表」，与 PC/MPV 一致
@@ -305,6 +335,28 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
       }
     }
   }, [showToast, video])
+
+  // 稍后观看：点一下加入、再点一下移出。先乐观更新按钮状态，服务端失败就回滚。
+  const toggleWatchLater = useCallback(async () => {
+    if (!video?.id || watchLaterBusy) return
+    const next = !inWatchLater
+    setWatchLaterBusy(true)
+    setInWatchLater(next)
+    try {
+      if (next) await addVideoWatchLater(video.id)
+      else await removeVideoWatchLater(video.id)
+      showToast(
+        next
+          ? zh('已加入稍后观看', 'Added to watch later')
+          : zh('已移出稍后观看', 'Removed from watch later')
+      )
+    } catch (error) {
+      setInWatchLater(!next)
+      showToast(getErrorMessage(error))
+    } finally {
+      setWatchLaterBusy(false)
+    }
+  }, [inWatchLater, showToast, video, watchLaterBusy])
 
   // 全屏状态：全屏时所有浮层都要搬进播放器元素里。
   // 全屏元素是 .video-js，它外面的内容浏览器一律不渲染 —— 不搬进去，
@@ -399,6 +451,9 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
       // 自定义控制条与手势全部保留；支持元素全屏的浏览器不受影响，
       // 依旧走真正的全屏。
       preferFullWindow: true,
+      // 双击画面由自绘手势接管（播放 / 暂停）。关掉 video.js 的「双击进入全屏」，
+      // 否则桌面浏览器上用移动端界面时，一次双击会既进全屏又暂停。
+      userActions: { doubleClick: false },
     })
     playerRef.current = player
     setPlayer(player)
@@ -595,6 +650,22 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
           <Icon name="back" size={20} />
         </button>
         <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold">{displayName}</h2>
+        <button
+          type="button"
+          onClick={toggleWatchLater}
+          disabled={watchLaterBusy}
+          aria-label={
+            inWatchLater
+              ? zh('移出稍后观看', 'Remove from watch later')
+              : zh('加入稍后观看', 'Add to watch later')
+          }
+          aria-pressed={inWatchLater}
+          className={`grid h-9 w-9 flex-none place-items-center rounded-[10px] active:bg-white/10 disabled:opacity-50 ${
+            inWatchLater ? 'text-brand-ink' : 'text-zinc-300'
+          }`}
+        >
+          <Icon name={inWatchLater ? 'bookmarkFilled' : 'bookmark'} size={19} />
+        </button>
         <button
           type="button"
           onClick={() => setSubtitleSheetOpen(true)}

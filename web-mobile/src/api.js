@@ -171,6 +171,33 @@ export async function clearAllPlayback() {
   return Number(data?.deleted) || 0
 }
 
+/* ---------------- 稍后观看（只写数据库，与播放记录彼此独立） ---------------- */
+
+export async function fetchWatchLater({ limit = 50, offset = 0 } = {}) {
+  const params = new URLSearchParams()
+  params.set('limit', String(limit))
+  params.set('offset', String(offset))
+  const data = await requestJSON('GET', `/watch-later?${params.toString()}`, {
+    cache: 'no-store',
+  })
+  return { items: Array.isArray(data?.items) ? data.items : [], total: Number(data?.total) || 0 }
+}
+
+export async function fetchVideoWatchLater(id) {
+  const data = await requestJSON('GET', `/videos/${id}/watch-later`, { cache: 'no-store' })
+  return Boolean(data?.in_list)
+}
+
+export async function addVideoWatchLater(id) {
+  const data = await requestJSON('PUT', `/videos/${id}/watch-later`)
+  return Boolean(data?.in_list)
+}
+
+export async function removeVideoWatchLater(id) {
+  const data = await requestJSON('DELETE', `/videos/${id}/watch-later`)
+  return Boolean(data?.in_list)
+}
+
 /* ---------------- 标签（只写数据库） ---------------- */
 
 export async function createTag(name) {

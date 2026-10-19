@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { fetchPlaybackHistory } from '@/api'
+import { fetchPlaybackHistory, fetchWatchLater } from '@/api'
 import Icon from '@/components/Icons'
+import Segmented from '@/components/form/Segmented'
 import SubPage from '@/components/SubPage'
 import { useStore } from '@/store'
 import { getVideoDisplayName } from '@/utils/display'
@@ -10,6 +11,9 @@ import { formatClock } from '@/utils/format'
 import { zh } from '@/utils/i18n'
 
 const PAGE_SIZE = 50
+
+const TAB_HISTORY = 'history'
+const TAB_WATCH_LATER = 'watchLater'
 
 /** 播放时间：今天/昨天用相对日期，同年用「月 日 时:分」，跨年带年份。 */
 function formatPlayedAt(value, now = new Date()) {
@@ -31,7 +35,7 @@ function formatPlayedAt(value, now = new Date()) {
   return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${clock}`
 }
 
-function HistoryRow({ item, onPlay }) {
+function HistoryRow({ item, onPlay, variant = TAB_HISTORY }) {
   const video = item?.video || {}
   const jav = video?.jav || video?.locations?.[0]?.jav || null
   const code = String(jav?.code || '').trim()
@@ -41,6 +45,7 @@ function HistoryRow({ item, onPlay }) {
   const rating = Number(jav?.favorite_rating) || 0
   const duration = Number(item?.duration_sec) || Number(video?.duration_sec) || 0
   const position = Number(item?.position_sec) || 0
+  const isWatchLater = variant === TAB_WATCH_LATER
   const version = encodeURIComponent(
     [video?.cover_screenshot_name || '', video?.updated_at || ''].join('|')
   )
@@ -85,11 +90,18 @@ function HistoryRow({ item, onPlay }) {
           </span>
         </span>
         <span className="mt-1 flex items-center gap-1.5 text-[11px] text-sky-700">
-          <Icon name="play" size={11} className="flex-none" />
+          <Icon name={isWatchLater ? 'clock' : 'play'} size={11} className="flex-none" />
           <span className="tabular-nums">
-            {`${formatClock(position)} / ${duration > 0 ? formatClock(duration) : '--:--'}`}
+            {isWatchLater
+              ? duration > 0
+                ? formatClock(duration)
+                : '--:--'
+              : `${formatClock(position)} / ${duration > 0 ? formatClock(duration) : '--:--'}`}
           </span>
-          <span className="text-zinc-400">{formatPlayedAt(item?.played_at)}</span>
+          {/* 稍后观看没有播放时间，这里不展示。 */}
+          {isWatchLater ? null : (
+            <span className="text-zinc-400">{formatPlayedAt(item?.played_at)}</span>
+          )}
         </span>
         {idols.length > 0 ? (
           <span className="mt-0.5 block truncate text-[11px] text-zinc-500">
@@ -112,11 +124,15 @@ function HistoryRow({ item, onPlay }) {
  * 移动端「播放记录」页：走页面栈（pushPage），与 PC 端浮层同源
  * （GET /playback/history），视频模块与 JAV 模块的记录混排。
  *
- * 点一条记录直接开播放器：续播位置由服务端记录决定（见 PlayerPage），
+ * 「稍后观看」作为第二个 tab（GET /watch-later），是查看稍后观看列表的入口；
+ * 加入 / 移出仍由播放页上的书签按钮负责。
+ *
+ * 点一条直接开播放器：续播位置由服务端记录决定（见 PlayerPage），
  * 这里不传 startTime，也不关掉本页 —— 退出播放器后还要接着翻列表。
  */
 export default function PlaybackHistoryPage({ onClose }) {
   const openPlayer = useStore((state) => state.openPlayer)
+  const [tab, setTab] = useState(TAB_HISTORY)
   const [items, setItems] = useState([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -124,39 +140,65 @@ export default function PlaybackHistoryPage({ onClose }) {
   const [error, setError] = useState('')
   const requestSeqRef = useRef(0)
 
-  const load = useCallback(async (offset) => {
-    const seq = requestSeqRef.current + 1
-    requestSeqRef.current = seq
-    if (offset === 0) setLoading(true)
-    else setLoadingMore(true)
-    try {
-      const data = await fetchPlaybackHistory({ limit: PAGE_SIZE, offset })
-      // 重新进入本页会发起新请求，旧响应不能覆盖新结果。
-      if (requestSeqRef.current !== seq) return
-      setItems((previous) => (offset === 0 ? data.items : [...previous, ...data.items]))
-      setTotal(data.total)
-      setError('')
-    } catch (err) {
-      if (requestSeqRef.current !== seq) return
-      setError(getErrorMessage(err))
-    } finally {
-      if (requestSeqRef.current === seq) {
-        setLoading(false)
-        setLoadingMore(false)
+  const load = useCallback(
+    async (offset) => {
+      const seq = requestSeqRef.current + 1
+      requestSeqRef.current = seq
+      if (offset === 0) {
+        setLoading(true)
+        // 切 tab / 重新进入时先清空，避免在「稍后观看」下面短暂看到播放记录。
+        setItems([])
+      } else setLoadingMore(true)
+      try {
+        const data =
+          tab === TAB_WATCH_LATER
+            ? await fetchWatchLater({ limit: PAGE_SIZE, offset })
+            : await fetchPlaybackHistory({ limit: PAGE_SIZE, offset })
+        // 重新进入本页 / 切换 tab 会发起新请求，旧响应不能覆盖新结果。
+        if (requestSeqRef.current !== seq) return
+        setItems((previous) => (offset === 0 ? data.items : [...previous, ...data.items]))
+        setTotal(data.total)
+        setError('')
+      } catch (err) {
+        if (requestSeqRef.current !== seq) return
+        setError(getErrorMessage(err))
+      } finally {
+        if (requestSeqRef.current === seq) {
+          setLoading(false)
+          setLoadingMore(false)
+        }
       }
-    }
-  }, [])
+    },
+    [tab]
+  )
 
   useEffect(() => {
     load(0)
   }, [load])
 
+  const isWatchLater = tab === TAB_WATCH_LATER
+  const countLabel = isWatchLater
+    ? zh(`${total} 个视频`, `${total} videos`)
+    : zh(`${total} 条记录`, `${total} records`)
+
   return (
     <SubPage
       title={zh('播放记录', 'Playback history')}
-      subtitle={loading ? zh('加载中…', 'Loading...') : zh(`${total} 条记录`, `${total} records`)}
+      subtitle={loading ? zh('加载中…', 'Loading...') : countLabel}
       onBack={onClose}
     >
+      <div className="border-b border-[#e6e8ec] bg-white px-3 py-2.5">
+        <Segmented
+          value={tab}
+          onChange={setTab}
+          label={zh('查看方式', 'View')}
+          options={[
+            { value: TAB_HISTORY, label: zh('播放记录', 'History') },
+            { value: TAB_WATCH_LATER, label: zh('稍后观看', 'Watch later') },
+          ]}
+        />
+      </div>
+
       {error ? (
         <div className="mx-3 mt-3 rounded-[10px] border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700">
           {error}
@@ -165,7 +207,9 @@ export default function PlaybackHistoryPage({ onClose }) {
 
       {!loading && items.length === 0 ? (
         <div className="px-4 py-16 text-center text-[13px] text-zinc-400">
-          {zh('还没有播放记录', 'No playback history yet')}
+          {isWatchLater
+            ? zh('还没有稍后观看的视频', 'No watch later videos yet')
+            : zh('还没有播放记录', 'No playback history yet')}
         </div>
       ) : null}
 
@@ -173,6 +217,7 @@ export default function PlaybackHistoryPage({ onClose }) {
         <HistoryRow
           key={item.video_id}
           item={item}
+          variant={tab}
           onPlay={(record) => {
             if (record?.video?.id) openPlayer(record.video)
           }}
