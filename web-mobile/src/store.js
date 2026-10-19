@@ -36,6 +36,9 @@ const MAX_SEARCH_HISTORY = 10
 const JAV_DENSITY_KEY = 'javboss-mobile:jav-density'
 const RANDOM_SEED_MAX = 2147483646
 
+/** 搜索「空」状态：输入框与生效值一起复位，清空筛选时共用，避免两份定义漂移。 */
+const EMPTY_SEARCH = { searchInput: '', searchTerm: '' }
+
 /** 随机模式用 `sort=random&seed=N` 让「随机但分页稳定」；每次进入随机都要换一个新种子。 */
 function nextRandomSeed() {
   return Math.floor(Math.random() * RANDOM_SEED_MAX) + 1
@@ -174,8 +177,11 @@ export const useStore = create((set, get) => ({
   },
   setSort: (value) => set({ sort: normalizeVideoSort(value), randomSeed: null }),
   setHideJav: (value) => set({ hideJav: Boolean(value) }),
-  clearFilters: () => set({ selectedTags: [], hideJav: false, sort: 'recent', randomSeed: null }),
-  resetSearch: () => set({ searchInput: '', searchTerm: '' }),
+  // 视频模式功能栏的「清空」：筛选条件与搜索关键词一起复位，否则关键词会
+  // 继续留在搜索框里，列表看起来「没清干净」。
+  clearFilters: () =>
+    set({ selectedTags: [], hideJav: false, sort: 'recent', randomSeed: null, ...EMPTY_SEARCH }),
+  resetSearch: () => set({ ...EMPTY_SEARCH }),
 
   /* ---------------- 标签与配置 ---------------- */
   loadTags: async () => {
@@ -335,11 +341,13 @@ export const useStore = create((set, get) => ({
   // 对应后端 `idol_rating_min` / `idol_rating_max`。
   idolRatingFilter: createDefaultIdolRatingFilter(),
   setIdolRatingFilter: (value) => set({ idolRatingFilter: normalizeIdolRatingFilter(value) }),
+  // 女优页功能栏的「清空」：排序与资料筛选复位，搜索关键词一并清掉。
   resetIdolControls: () =>
     set({
       idolSort: '',
       idolProfileFilters: createDefaultIdolProfileFilters(),
       idolRatingFilter: createDefaultIdolRatingFilter(),
+      ...EMPTY_SEARCH,
     }),
 
   /**
@@ -398,7 +406,9 @@ export const useStore = create((set, get) => ({
         favoriteGroupName: id ? String(name || '') : '',
       },
     })),
-  clearJavFilters: () => set({ javFilters: { ...EMPTY_JAV_FILTERS } }),
+  // JAV 作品页功能栏的「清空」：JAV 筛选与搜索关键词一起复位。搜索是全局状态，
+  // 不跟着清会让作品列表继续被旧关键词过滤。
+  clearJavFilters: () => set({ javFilters: { ...EMPTY_JAV_FILTERS }, ...EMPTY_SEARCH }),
 
   /**
    * 列表重拉信号。
