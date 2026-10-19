@@ -79,7 +79,9 @@ export default function JavWorkCard({
 
   const play = () => {
     if (blocked()) return
-    if (canPlay) openPlayer(videos[0], videos)
+    // 把作品本身也带给播放器：JAV 模式下视频来自作品的 videos，不带 video.jav，
+    // 播放页要靠它才能显示番号 / 演员，并支持「查看详情」跳回详情页。
+    if (canPlay) openPlayer(videos[0], videos, 0, item)
     else onOpen?.(item)
   }
   const openDetail = () => {

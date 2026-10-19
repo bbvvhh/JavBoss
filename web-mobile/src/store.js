@@ -273,10 +273,12 @@ export const useStore = create((set, get) => ({
   },
 
   /* ---------------- 播放器 ---------------- */
-  player: null, // { video, list, startTime }
+  player: null, // { video, list, startTime, jav }
   // startTime：从预览图（截图）跳进来时的起始进度；0 表示续播本机记录的上次进度。
-  openPlayer: (video, list, startTime = 0) =>
-    set({ player: { video, list: list || get().videos, startTime } }),
+  // jav：当前视频关联的 JAV 作品（播放页「查看详情」入口用）。JAV 模式从作品卡直接
+  // 播放时，视频对象取自作品的 videos，并不带 video.jav，所以这里显式把它传进来。
+  openPlayer: (video, list, startTime = 0, jav = null) =>
+    set({ player: { video, list: list || get().videos, startTime, jav } }),
   closePlayer: () => set({ player: null }),
 
   /* ---------------- 轻提示 ---------------- */
@@ -463,6 +465,44 @@ export const useStore = create((set, get) => ({
       /* 拉取失败仍用列表里的快照进页 */
     }
     set({ pages: [...get().pages, { type: 'jav-idol', payload }] })
+  },
+
+  /**
+   * 打开 JAV 作品详情页（播放页「查看详情」入口用）。
+   *
+   * 播放页上的作品信息（`video.jav`）只是列表里的快照：有 id / code / 片商 / 演员，
+   * 缺详情页要展示的「库内文件」「标签」「收藏夹数」，而 JAV 模式从作品卡播放时连
+   * 快照都没有。后端又没有「按 id 取单条作品」的接口，所以用 code 搜一次、按 id 精确
+   * 命中后再压栈；搜不到就退回快照，至少能进页，只是库内文件 / 标签为空。
+   *
+   * 若栈顶已经是同一部作品的详情页（例如播放器就是从详情页开起来的），就不再压一层：
+   * 关掉播放器，底下那页正好露出来，返回一次即可回到它。
+   */
+  openJavDetail: async (jav) => {
+    const id = Number(jav?.id) || 0
+    const code = String(jav?.code || '').trim()
+    if (!id && !code) return
+    const top = get().pages[get().pages.length - 1] || null
+    if (id > 0 && top?.type === 'jav-detail' && Number(top.payload?.id) === id) return
+    let payload = jav
+    if (code) {
+      try {
+        const resp = await fetchJavs({ search: code, limit: 20 })
+        const items = Array.isArray(resp?.items) ? resp.items : []
+        const match =
+          (id > 0 ? items.find((item) => Number(item?.id) === id) : null) ||
+          items.find(
+            (item) =>
+              String(item?.code || '')
+                .trim()
+                .toLowerCase() === code.toLowerCase()
+          )
+        if (match) payload = match
+      } catch {
+        /* 拉取失败仍用快照进页 */
+      }
+    }
+    set({ pages: [...get().pages, { type: 'jav-detail', payload }] })
   },
 
   javFilterCount: () => {

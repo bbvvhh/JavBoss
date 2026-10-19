@@ -176,7 +176,7 @@ export function JavDetailPage({ jav, onClose }) {
   // 点预览图上的播放图标 = 用该截图所属的文件从截图所在进度开始播（与 PC 一致）。
   const playAtScreenshot = (video, startSecond) => {
     if (!video || startSecond == null) return
-    openPlayer(video, localVideos, startSecond)
+    openPlayer(video, localVideos, startSecond, jav)
   }
 
   const meta = [
@@ -196,7 +196,9 @@ export function JavDetailPage({ jav, onClose }) {
       <Cover
         code={jav?.code}
         title={jav?.title}
-        onPlay={localVideos.length ? () => openPlayer(localVideos[0], localVideos) : undefined}
+        onPlay={
+          localVideos.length ? () => openPlayer(localVideos[0], localVideos, 0, jav) : undefined
+        }
       />
 
       <section className="border-b border-[#e6e8ec] bg-white px-3.5 py-3.5">
@@ -347,7 +349,7 @@ export function JavDetailPage({ jav, onClose }) {
                 </div>
                 <button
                   type="button"
-                  onClick={() => openPlayer(video, localVideos)}
+                  onClick={() => openPlayer(video, localVideos, 0, jav)}
                   aria-label={zh('播放', 'Play')}
                   className="grid h-9 w-9 flex-none place-items-center rounded-full bg-brand text-white"
                 >

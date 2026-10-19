@@ -38,11 +38,12 @@ import { zh } from '@/utils/i18n'
 
 const SAVE_INTERVAL_MS = 5000
 
-export default function PlayerPage({ video, startTime = 0, onClose }) {
+export default function PlayerPage({ video, startTime = 0, jav: providedJav = null, onClose }) {
   const stageRef = useRef(null)
   const playerRef = useRef(null)
   const showToast = useStore((state) => state.showToast)
   const patchVideo = useStore((state) => state.patchVideo)
+  const openJavDetail = useStore((state) => state.openJavDetail)
   // 已挂到 video.js 上的字幕轨（含 blob URL，销毁时必须回收）。
   const subtitleTracksRef = useRef([])
   const activeSubtitleRef = useRef(null)
@@ -71,9 +72,9 @@ export default function PlayerPage({ video, startTime = 0, onClose }) {
   const defaultSubtitleKeyword = useMemo(() => {
     const fromServer = String(subtitleJavCode || '').trim()
     if (fromServer) return fromServer
-    const jav = video?.jav || video?.locations?.[0]?.jav || null
+    const jav = providedJav || video?.jav || video?.locations?.[0]?.jav || null
     return String(jav?.code || '').trim()
-  }, [subtitleJavCode, video])
+  }, [subtitleJavCode, video, providedJav])
 
   const removeSubtitleTracks = useCallback(() => {
     const player = playerRef.current
@@ -504,11 +505,13 @@ export default function PlayerPage({ video, startTime = 0, onClose }) {
   const duration = formatDuration(video?.duration_sec)
   const resolution =
     fingerprint.width && fingerprint.height ? `${fingerprint.width}×${fingerprint.height}` : ''
-  const jav = video?.jav || video?.locations?.[0]?.jav || null
+  const jav = providedJav || video?.jav || video?.locations?.[0]?.jav || null
   const code = String(jav?.code || '').trim()
+  const javId = Number(jav?.id) || 0
   const idols = (jav?.idols || []).map((idol) => idol?.name).filter(Boolean)
   const tags = (video?.tags || []).map((tag) => tag?.name).filter(Boolean)
   const released = formatReleaseDate(jav?.release_unix)
+  const canOpenJavDetail = javId > 0 || Boolean(code)
 
   const metaItems = [resolution, sizeText, duration, released].filter(Boolean)
 
@@ -672,7 +675,7 @@ export default function PlayerPage({ video, startTime = 0, onClose }) {
           ) : null}
         </section>
 
-        {code || idols.length || tags.length ? (
+        {canOpenJavDetail || idols.length || tags.length ? (
           <section className="border-b border-[#e6e8ec] bg-white px-3.5 py-3.5">
             {code ? (
               <div className="mb-2 flex items-center gap-2 text-[12px] text-zinc-600">
@@ -706,6 +709,31 @@ export default function PlayerPage({ video, startTime = 0, onClose }) {
                   ))}
                 </span>
               </div>
+            ) : null}
+            {/* 跳到作品详情页：播放页只带精简信息，详情页里有库内文件、标签、收藏夹等。
+                先关播放器（否则它这层全屏浮层挡住详情页）；openJavDetail 内部要先按
+                code 取一次完整作品再压栈，取回耗时晚于播放器浮层的这次返回，不会把刚
+                压入的详情页弹掉。 */}
+            {canOpenJavDetail ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose()
+                  openJavDetail(jav)
+                }}
+                className="mt-2 flex w-full items-center gap-2 rounded-lg bg-[#f7f8fa] px-2.5 py-2 text-left text-[12.5px] active:bg-zinc-100"
+              >
+                <span className="flex-none rounded bg-zinc-100 px-[5px] text-[10px] font-bold leading-[15px] text-zinc-400">
+                  {zh('作品', 'Work')}
+                </span>
+                <span className="min-w-0 flex-1 truncate font-medium text-zinc-800">
+                  {code || jav?.title || zh('JAV 作品', 'JAV work')}
+                </span>
+                <span className="flex-none text-[11px] font-semibold text-brand-ink">
+                  {zh('查看详情', 'View details')}
+                </span>
+                <Icon name="right" size={14} className="flex-none text-zinc-300" />
+              </button>
             ) : null}
           </section>
         ) : null}

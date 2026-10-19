@@ -378,6 +378,7 @@ export default function App() {
           key={`${player.video?.id}-${player.video?.location_id || 0}`}
           video={player.video}
           startTime={player.startTime || 0}
+          jav={player.jav || null}
           onClose={() => useStore.getState().closePlayer()}
         />
       ) : null}
