@@ -638,6 +638,34 @@ export async function resolveJavSampleImages(id) {
   return Array.isArray(data?.sample_images) ? data.sample_images : []
 }
 
+/* ---------------- JAV 查重（只读 + 只写数据库） ----------------
+ *
+ * 查重 = 同一番号下存在多个视频文件视为重复；白名单里的作品后续不再出现。
+ * 这些接口只读 / 只写 javboss.db，不碰任何用户媒体文件，符合 §0 的安全分类。
+ */
+
+/** 查重结果列表（已排除白名单作品），与 PC 端 `fetchJavDuplicates` 同一个接口。 */
+export async function fetchJavDuplicates({ limit = 25, offset = 0, search = '' } = {}) {
+  const params = new URLSearchParams()
+  params.set('limit', String(limit))
+  params.set('offset', String(offset))
+  if (search) params.set('search', search)
+  return requestJSON('GET', `/jav/duplicates?${params.toString()}`, { cache: 'no-store' })
+}
+
+export async function fetchJavDuplicateWhitelist() {
+  const data = await requestJSON('GET', `/jav/duplicate-whitelist`, { cache: 'no-store' })
+  return Array.isArray(data?.items) ? data.items : []
+}
+
+export async function addJavDuplicateWhitelist(javIds) {
+  return requestJSON('POST', `/jav/duplicate-whitelist`, { body: { jav_ids: javIds } })
+}
+
+export async function removeJavDuplicateWhitelist(javIds) {
+  return requestJSON('POST', `/jav/duplicate-whitelist/remove`, { body: { jav_ids: javIds } })
+}
+
 /* ======================================================================
  * 设置区（P2）
  * ======================================================================

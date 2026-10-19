@@ -6,6 +6,7 @@ import FilterSheet from '@/components/FilterSheet'
 import Icon from '@/components/Icons'
 import IdolCoverEditorPage from '@/components/IdolCoverEditorPage'
 import { JavDetailPage, JavIdolPage } from '@/components/JavDetailPage'
+import { JavDuplicatePage, JavDuplicateWhitelistPage } from '@/components/JavDuplicatePage'
 import JavDensitySheet from '@/components/JavDensitySheet'
 import JavFavoriteSheet from '@/components/JavFavoriteSheet'
 import JavFilterSheet from '@/components/JavFilterSheet'
@@ -177,6 +178,7 @@ export default function App() {
               onOpenFilter={() => setJavFilterOpen(true)}
               onOpenTags={() => setJavTagOpen(true)}
               onOpenFavorites={() => setJavFavoriteOpen(true)}
+              onOpenDuplicates={() => useStore.getState().pushPage('jav-duplicates')}
             />
           ) : javTab === 'idols' ? (
             // 女优页的排序 / 资料筛选与作品页完全无关，走独立控件。
@@ -368,6 +370,12 @@ export default function App() {
       ) : null}
       {topPage?.type === 'jav-idol-cover' ? (
         <IdolCoverEditorPage idol={topPage.payload} onClose={() => useStore.getState().popPage()} />
+      ) : null}
+      {topPage?.type === 'jav-duplicates' ? (
+        <JavDuplicatePage onClose={() => useStore.getState().popPage()} />
+      ) : null}
+      {topPage?.type === 'jav-duplicate-whitelist' ? (
+        <JavDuplicateWhitelistPage onClose={() => useStore.getState().popPage()} />
       ) : null}
       {topPage?.type === 'playback-history' ? (
         <PlaybackHistoryPage onClose={() => useStore.getState().popPage()} />

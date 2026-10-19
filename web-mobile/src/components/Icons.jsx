@@ -52,6 +52,16 @@ const PATHS = {
     />
   ),
   play: <path d="M7 4.5 19.5 12 7 19.5V4.5Z" {...FILLED} />,
+  // 查重入口：两张叠在一起的卡片，表达「同一番号多个文件」。
+  copy: (
+    <>
+      <rect x="8.6" y="8.6" width="10.4" height="10.4" rx="2" {...STROKE} />
+      <path
+        d="M15.4 5.4A1.9 1.9 0 0 0 13.5 4H6a2 2 0 0 0-2 2v7.5a1.9 1.9 0 0 0 1.4 1.87"
+        {...STROKE}
+      />
+    </>
+  ),
   check: <path d="m5 12.5 4.5 4.5L19 7" {...STROKE} strokeWidth={2.6} />,
   x: <path d="M6 6l12 12M18 6 6 18" {...STROKE} strokeWidth={2} />,
   more: (

@@ -36,7 +36,12 @@ function Count({ value }) {
  * 「筛选排序」是**一个**入口：排序与筛选本来就收在同一个抽屉（JavFilterSheet）里，
  * 拆成两个 chip 只是同一个按钮换个文案，所以合并成一个。
  */
-export default function JavQuickChips({ onOpenFilter, onOpenTags, onOpenFavorites }) {
+export default function JavQuickChips({
+  onOpenFilter,
+  onOpenTags,
+  onOpenFavorites,
+  onOpenDuplicates,
+}) {
   const javRandomSeed = useStore((state) => state.javRandomSeed)
   const filters = useStore((state) => state.javFilters)
   const rollJavRandom = useStore((state) => state.rollJavRandom)
@@ -87,6 +92,11 @@ export default function JavQuickChips({ onOpenFilter, onOpenTags, onOpenFavorite
             ? filters.favoriteGroupName || zh('收藏夹', 'Favorites')
             : zh('收藏夹', 'Favorites')}
         </span>
+      </Chip>
+
+      <Chip onClick={onOpenDuplicates}>
+        <Icon name="copy" size={14} />
+        {zh('查重', 'Duplicates')}
       </Chip>
 
       {hasAny ? (
