@@ -69,10 +69,7 @@ export default function JavQuickChips({ onOpenFilter, onOpenTags, onOpenFavorite
         <Count value={drawerCount} />
       </Chip>
 
-      <Chip
-        tone={javRandomSeed ? 'active' : 'default'}
-        onClick={() => (javRandomSeed ? clearJavRandom() : rollJavRandom())}
-      >
+      <Chip tone={javRandomSeed ? 'active' : 'default'} onClick={rollJavRandom}>
         <Icon name="shuffle" size={14} />
         {zh('随机', 'Random')}
       </Chip>

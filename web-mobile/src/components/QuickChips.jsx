@@ -26,7 +26,6 @@ export default function QuickChips({ onOpenFilter }) {
   const randomSeed = useStore((state) => state.randomSeed)
   const clearFilters = useStore((state) => state.clearFilters)
   const rollRandom = useStore((state) => state.rollRandom)
-  const clearRandom = useStore((state) => state.clearRandom)
 
   const hasFilters = selectedTags.length > 0 || hideJav || sort !== 'recent' || Boolean(randomSeed)
   const sortOption = findVideoSortOption(sort)
@@ -39,10 +38,7 @@ export default function QuickChips({ onOpenFilter }) {
         {sortLabel}
       </Chip>
 
-      <Chip
-        tone={randomSeed ? 'active' : 'default'}
-        onClick={() => (randomSeed ? clearRandom() : rollRandom())}
-      >
+      <Chip tone={randomSeed ? 'active' : 'default'} onClick={rollRandom}>
         <Icon name="shuffle" size={14} />
         {zh('随机', 'Random')}
       </Chip>
