@@ -101,6 +101,11 @@ func parseJavIdolFilters(c *gin.Context) (dbpkg.JavIdolFilters, bool) {
 		}
 		*item.target = parsed
 	}
+	rating, ok := parseJavIdolRatingRange(c)
+	if !ok {
+		return filters, false
+	}
+	filters.FavoriteRating = rating
 	return filters, true
 }
 
@@ -119,6 +124,30 @@ func parseJavIdolIntRange(c *gin.Context, key, labelCN, labelEN string, minimum,
 	parsedMax, maxErr := strconv.Atoi(maxParam)
 	if minErr != nil || maxErr != nil || parsedMin < minimum || parsedMax > maximum || parsedMin > parsedMax {
 		respondLocalizedError(c, http.StatusBadRequest, labelCN+"范围无效", "Invalid idol "+labelEN+" range")
+		return result, false
+	}
+	result.Min = &parsedMin
+	result.Max = &parsedMax
+	return result, true
+}
+
+func parseJavIdolRatingRange(c *gin.Context) (dbpkg.JavIdolFloatRange, bool) {
+	result := dbpkg.JavIdolFloatRange{}
+	minParam := strings.TrimSpace(c.Query("idol_rating_min"))
+	maxParam := strings.TrimSpace(c.Query("idol_rating_max"))
+	if minParam == "" && maxParam == "" {
+		return result, true
+	}
+	if minParam == "" || maxParam == "" {
+		respondLocalizedError(c, http.StatusBadRequest, "喜爱度范围无效", "Invalid idol favorite rating range")
+		return result, false
+	}
+	parsedMin, minErr := strconv.ParseFloat(minParam, 64)
+	parsedMax, maxErr := strconv.ParseFloat(maxParam, 64)
+	if minErr != nil || maxErr != nil || math.IsNaN(parsedMin) || math.IsNaN(parsedMax) || math.IsInf(parsedMin, 0) || math.IsInf(parsedMax, 0) ||
+		parsedMin < 0.5 || parsedMax > 5 || parsedMin > parsedMax ||
+		math.Abs(parsedMin*2-math.Round(parsedMin*2)) > 1e-9 || math.Abs(parsedMax*2-math.Round(parsedMax*2)) > 1e-9 {
+		respondLocalizedError(c, http.StatusBadRequest, "喜爱度范围无效", "Invalid idol favorite rating range")
 		return result, false
 	}
 	result.Min = &parsedMin
@@ -205,17 +234,18 @@ func updateJavIdol(c *gin.Context) {
 	}
 
 	var req struct {
-		Name         string   `json:"name"`
-		RomanName    string   `json:"roman_name"`
-		JapaneseName string   `json:"japanese_name"`
-		ChineseName  string   `json:"chinese_name"`
-		HeightCM     *int     `json:"height_cm"`
-		BirthDate    *string  `json:"birth_date"`
-		Bust         *int     `json:"bust"`
-		Waist        *int     `json:"waist"`
-		Hips         *int     `json:"hips"`
-		Cup          *int     `json:"cup"`
-		Aliases      []string `json:"aliases"`
+		Name           string   `json:"name"`
+		RomanName      string   `json:"roman_name"`
+		JapaneseName   string   `json:"japanese_name"`
+		ChineseName    string   `json:"chinese_name"`
+		HeightCM       *int     `json:"height_cm"`
+		BirthDate      *string  `json:"birth_date"`
+		Bust           *int     `json:"bust"`
+		Waist          *int     `json:"waist"`
+		Hips           *int     `json:"hips"`
+		Cup            *int     `json:"cup"`
+		Aliases        []string `json:"aliases"`
+		FavoriteRating *float64 `json:"favorite_rating"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondLocalizedError(c, http.StatusBadRequest, "修改女优信息请求无效", "Invalid idol update request")
@@ -236,17 +266,18 @@ func updateJavIdol(c *gin.Context) {
 	}
 
 	item, err := dbpkg.UpdateJavIdol(c.Request.Context(), id, dbpkg.JavIdolUpdateInput{
-		Name:         req.Name,
-		RomanName:    req.RomanName,
-		JapaneseName: req.JapaneseName,
-		ChineseName:  req.ChineseName,
-		HeightCM:     req.HeightCM,
-		BirthDate:    birthDate,
-		Bust:         req.Bust,
-		Waist:        req.Waist,
-		Hips:         req.Hips,
-		Cup:          req.Cup,
-		Aliases:      req.Aliases,
+		Name:           req.Name,
+		RomanName:      req.RomanName,
+		JapaneseName:   req.JapaneseName,
+		ChineseName:    req.ChineseName,
+		HeightCM:       req.HeightCM,
+		BirthDate:      birthDate,
+		Bust:           req.Bust,
+		Waist:          req.Waist,
+		Hips:           req.Hips,
+		Cup:            req.Cup,
+		Aliases:        req.Aliases,
+		FavoriteRating: req.FavoriteRating,
 	}, nil)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

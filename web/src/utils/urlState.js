@@ -109,6 +109,10 @@ export const parseUrlState = (searchString = window.location.search, options = {
     favoriteRatingMin !== null &&
     favoriteRatingMax !== null &&
     favoriteRatingMin <= favoriteRatingMax
+  const idolRatingMin = parseFavoriteRating(sp.get('idol_rating_min'))
+  const idolRatingMax = parseFavoriteRating(sp.get('idol_rating_max'))
+  const idolRatingEnabled =
+    idolRatingMin !== null && idolRatingMax !== null && idolRatingMin <= idolRatingMax
 
   const jav = {
     tab: javTab,
@@ -127,6 +131,9 @@ export const parseUrlState = (searchString = window.location.search, options = {
     favoriteRatingMax: favoriteRatingEnabled ? favoriteRatingMax : 5,
     favoriteGroupId: parsePositiveInt(sp.get('favorite_group_id')),
     idolFavoriteGroupId: parsePositiveInt(sp.get('favorite_group_id')),
+    idolRatingEnabled,
+    idolRatingMin: idolRatingEnabled ? idolRatingMin : 0.5,
+    idolRatingMax: idolRatingEnabled ? idolRatingMax : 5,
     idolProfileFilters:
       javTab === 'idol' ? parseIdolProfileFilters(sp) : createDefaultIdolProfileFilters(),
     tempSort: javTempSort,
@@ -188,6 +195,10 @@ export const buildUrlFromState = (state, basePath = window.location.pathname) =>
       sp.set('favorite_group_id', String(state.jav.favoriteGroupId))
     }
     if (state.jav.tab === 'idol') {
+      if (state.jav.idolRatingEnabled) {
+        sp.set('idol_rating_min', String(state.jav.idolRatingMin))
+        sp.set('idol_rating_max', String(state.jav.idolRatingMax))
+      }
       const profileFilters = normalizeIdolProfileFilters(state.jav.idolProfileFilters)
       for (const definition of IDOL_PROFILE_FILTER_DEFINITIONS) {
         const value = profileFilters[definition.key]
@@ -288,6 +299,9 @@ export const normalizeUrlStateFromStore = (store, tagsByName) => {
               ? store.seriesFavoriteGroupId || null
               : store.javFavoriteGroupId || null,
       idolFavoriteGroupId: store.javTab === 'idol' ? store.idolFavoriteGroupId || null : null,
+      idolRatingEnabled: Boolean(store.idolRatingEnabled),
+      idolRatingMin: store.idolRatingMin ?? 0.5,
+      idolRatingMax: store.idolRatingMax ?? 5,
       idolProfileFilters:
         store.javTab === 'idol'
           ? normalizeIdolProfileFilters(store.idolProfileFilters)

@@ -312,6 +312,9 @@ export default function TopBar({
   favoriteRatingMin = 0.5,
   favoriteRatingMax = 5,
   idolProfileFilters = {},
+  idolRatingEnabled = false,
+  idolRatingMin = 0.5,
+  idolRatingMax = 5,
   buildFavoriteGroupUrl,
   filterItems = [],
   hasActiveControlFilter = false,
@@ -324,6 +327,8 @@ export default function TopBar({
   onFavoriteRatingEnabledChange,
   onFavoriteRatingRangeChange,
   onIdolProfileFilterChange,
+  onIdolRatingEnabledChange,
+  onIdolRatingRangeChange,
   onHome,
   onRandomClick,
   onOpenFavoriteGroups,
@@ -487,12 +492,21 @@ export default function TopBar({
           ) : null}
 
           {isJavMode && javTab === 'idol' ? (
-            <IdolProfileFilters
-              filters={idolProfileFilters}
-              onChange={onIdolProfileFilterChange}
-              showClear={hasActiveControlFilter}
-              onClear={onClearFilters}
-            />
+            <>
+              <FavoriteRatingFilter
+                enabled={idolRatingEnabled}
+                min={idolRatingMin}
+                max={idolRatingMax}
+                onEnabledChange={onIdolRatingEnabledChange}
+                onRangeChange={onIdolRatingRangeChange}
+              />
+              <IdolProfileFilters
+                filters={idolProfileFilters}
+                onChange={onIdolProfileFilterChange}
+                showClear={hasActiveControlFilter}
+                onClear={onClearFilters}
+              />
+            </>
           ) : null}
 
           {onRandomClick ? (

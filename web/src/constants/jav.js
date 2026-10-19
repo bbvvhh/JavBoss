@@ -151,6 +151,15 @@ export const IDOL_SORT_OPTIONS = [
     asc: ['小→大', 'small→large'],
     desc: ['大→小', 'large→small'],
   },
+  {
+    base: 'favorite_rating',
+    defaultValue: 'favorite_rating',
+    ascValue: 'favorite_rating_asc',
+    descValue: 'favorite_rating',
+    label: ['喜爱度', 'Favorite rating'],
+    asc: ['低→高', 'low→high'],
+    desc: ['高→低', 'high→low'],
+  },
 ]
 
 export const IDOL_FAVORITE_ORDER_SORT = 'favorite_order'
@@ -354,6 +363,7 @@ export function normalizeIdolSort(sort, fallback = 'work') {
     hips_desc: 'hips',
     waist_asc: 'waist',
     cup_desc: 'cup',
+    favorite_rating_desc: 'favorite_rating',
   })
 }
 

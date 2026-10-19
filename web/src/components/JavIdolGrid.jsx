@@ -7,11 +7,13 @@ import StarBorderRoundedIcon from '@mui/icons-material/StarBorderRounded'
 import StarRoundedIcon from '@mui/icons-material/StarRounded'
 import { fetchJavIdolOptions, mergeJavIdols, updateJavIdol } from '@/api'
 import AppModal from '@/components/AppModal'
+import JavFavoriteRatingEditor from '@/components/JavFavoriteRatingEditor'
 import JavIdolCoverModal, {
   IDOL_COVER_DEFAULT_CROP_LEFT,
   IDOL_COVER_VISIBLE_RATIO,
   normalizeIdolCoverCropLeft,
 } from '@/components/JavIdolCoverModal'
+import { useStore } from '@/store'
 import { getIdolDisplayNames } from '@/utils/javIdol'
 import { openJavDBWithAssist } from '@/utils/javdb'
 import { zh } from '@/utils/i18n'
@@ -114,6 +116,23 @@ export default function JavIdolGrid({
           })
           setEditItem(updated)
         }}
+        onRatingSaved={(updated) => {
+          const id = Number(updated?.id)
+          if (!Number.isFinite(id) || id <= 0) return
+          setCoverOverrides((current) => {
+            const next = new Map(current)
+            next.set(id, updated)
+            return next
+          })
+          useStore.setState((state) => {
+            if (!Array.isArray(state.idolItems)) return {}
+            return {
+              idolItems: state.idolItems.map((current) =>
+                Number(current?.id) === id ? { ...current, ...updated } : current
+              ),
+            }
+          })
+        }}
         onMerged={(updated) => {
           setEditItem(null)
           onMerged?.(updated)
@@ -144,6 +163,7 @@ export function IdolCard({
   const [coverImageSize, setCoverImageSize] = useState(null)
   const workCount = item?.work_count || 0
   const favoriteCount = Number(item?.favorite_count) || 0
+  const favoriteRating = Number(item?.favorite_rating) || 0
   const aliases = Array.isArray(item?.aliases) ? item.aliases : []
   const birthDate = formatBirthDateWithAge(item?.birth_date)
   const height = typeof item?.height_cm === 'number' ? `${item.height_cm}cm` : ''
@@ -362,6 +382,15 @@ export function IdolCard({
             </span>
           ) : null}
         </div>
+        {favoriteRating > 0 ? (
+          <div className="flex items-center">
+            <JavFavoriteRatingEditor
+              value={favoriteRating}
+              readOnly
+              name={`jav-idol-rating-${item?.id || 'card'}`}
+            />
+          </div>
+        ) : null}
         {metaRows.length > 0 ? (
           <div className="flex flex-col gap-1.5 text-[10px] text-gray-900">
             {metaRows.map((row) => (
@@ -394,12 +423,16 @@ export function JavIdolEditModal({
   preferChineseName = false,
   onClose,
   onSaved,
+  onRatingSaved,
   onMerged,
 }) {
   const [form, setForm] = useState(() => buildIdolEditForm(item))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [mergeOpen, setMergeOpen] = useState(false)
+  const [rating, setRating] = useState(() => Number(item?.favorite_rating) || 0)
+  const [ratingSaving, setRatingSaving] = useState(false)
+  const [ratingError, setRatingError] = useState('')
   const idolId = Number(item?.id)
   const displayName = displayIdolOptionName(item, preferChineseName)
 
@@ -409,6 +442,9 @@ export function JavIdolEditModal({
       setError('')
       setSaving(false)
       setMergeOpen(false)
+      setRating(Number(item?.favorite_rating) || 0)
+      setRatingSaving(false)
+      setRatingError('')
     }
   }, [item, open])
 
@@ -416,6 +452,38 @@ export function JavIdolEditModal({
 
   const setField = (key, value) => {
     setForm((current) => ({ ...current, [key]: value }))
+  }
+
+  const handleRatingChange = async (event, value) => {
+    event?.stopPropagation()
+    const numericValue = value == null ? 0 : Number(value)
+    const nextRating = Math.round(numericValue * 2) / 2
+    if (
+      ratingSaving ||
+      !Number.isFinite(idolId) ||
+      idolId <= 0 ||
+      !Number.isFinite(nextRating) ||
+      nextRating < 0 ||
+      nextRating > 5
+    ) {
+      return
+    }
+
+    const previousRating = rating
+    setRating(nextRating)
+    setRatingSaving(true)
+    setRatingError('')
+    try {
+      const updated = await updateJavIdol(idolId, { favorite_rating: nextRating })
+      const savedRating = Number(updated?.favorite_rating) || nextRating
+      setRating(savedRating)
+      onRatingSaved?.(updated)
+    } catch (err) {
+      setRating(previousRating)
+      setRatingError(getErrorMessage(err))
+    } finally {
+      setRatingSaving(false)
+    }
   }
 
   const addAliases = (value) => {
@@ -486,6 +554,18 @@ export function JavIdolEditModal({
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-gray-700">
+              {zh('喜爱度', 'Favorite rating')}
+            </span>
+            <JavFavoriteRatingEditor
+              value={rating}
+              saving={ratingSaving}
+              error={ratingError}
+              onChange={handleRatingChange}
+              name={`jav-idol-detail-favorite-rating-${idolId || 'new'}`}
+            />
+          </div>
           <div className="grid gap-3 md:grid-cols-2">
             <TextField
               label={zh('名称', 'Name')}

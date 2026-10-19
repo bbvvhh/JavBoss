@@ -165,6 +165,7 @@ const idolListRequestKey = (state) => {
     state.javSearchTerm || '',
     effectiveSort,
     state.idolFavoriteGroupId || '',
+    state.idolRatingEnabled ? `${state.idolRatingMin}-${state.idolRatingMax}` : '',
     IDOL_PROFILE_FILTER_DEFINITIONS.map((definition) => {
       const value = profileFilters[definition.key]
       return value.enabled ? `${definition.key}:${value.min}-${value.max}` : ''
@@ -277,6 +278,9 @@ export const useStore = create((set, get) => ({
   idolSort: 'work',
   idolTempSort: '',
   idolFavoriteGroupId: null,
+  idolRatingEnabled: false,
+  idolRatingMin: 0.5,
+  idolRatingMax: 5,
   idolProfileFilters: createDefaultIdolProfileFilters(),
   idolItems: [],
   idolTotal: 0,
@@ -961,7 +965,16 @@ export const useStore = create((set, get) => ({
     }
   },
   loadJavIdols: async (options = {}) => {
-    const { idolPage, idolPageSize, javSearchTerm, idolFavoriteGroupId, idolProfileFilters } = get()
+    const {
+      idolPage,
+      idolPageSize,
+      javSearchTerm,
+      idolFavoriteGroupId,
+      idolProfileFilters,
+      idolRatingEnabled,
+      idolRatingMin,
+      idolRatingMax,
+    } = get()
     const search = javSearchTerm || ''
     const key = idolListRequestKey(get())
     if (!options.force && key === lastIdolFetchKey) {
@@ -978,6 +991,9 @@ export const useStore = create((set, get) => ({
         sort: effectiveIdolSort(get()),
         favoriteGroupId: idolFavoriteGroupId,
         profileFilters: idolProfileFilters,
+        favoriteRatingEnabled: idolRatingEnabled,
+        favoriteRatingMin: idolRatingMin,
+        favoriteRatingMax: idolRatingMax,
       })
       if (reqId !== idolLoadSeq || key !== idolListRequestKey(get())) return
       set({
@@ -1014,6 +1030,9 @@ export const useStore = create((set, get) => ({
         sort: effectiveIdolSort(state),
         favoriteGroupId: state.idolFavoriteGroupId,
         profileFilters: state.idolProfileFilters,
+        favoriteRatingEnabled: state.idolRatingEnabled,
+        favoriteRatingMin: state.idolRatingMin,
+        favoriteRatingMax: state.idolRatingMax,
       })
       if (
         loadReqId !== idolLoadSeq ||

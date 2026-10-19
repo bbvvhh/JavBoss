@@ -14,7 +14,9 @@ import {
 import { normalizeVideoSort } from '@/constants/video'
 import {
   createDefaultIdolProfileFilters,
+  createDefaultIdolRatingFilter,
   normalizeIdolProfileFilters,
+  normalizeIdolRatingFilter,
   normalizeIdolSort,
   normalizeJavDensity,
   normalizeJavSort,
@@ -327,8 +329,16 @@ export const useStore = create((set, get) => ({
   idolProfileFilters: createDefaultIdolProfileFilters(),
   setIdolProfileFilters: (filters) =>
     set({ idolProfileFilters: normalizeIdolProfileFilters(filters) }),
+  // 女优喜爱度区间：与作品的 favoriteRating 同构（0.5 一档、闭区间），
+  // 对应后端 `idol_rating_min` / `idol_rating_max`。
+  idolRatingFilter: createDefaultIdolRatingFilter(),
+  setIdolRatingFilter: (value) => set({ idolRatingFilter: normalizeIdolRatingFilter(value) }),
   resetIdolControls: () =>
-    set({ idolSort: '', idolProfileFilters: createDefaultIdolProfileFilters() }),
+    set({
+      idolSort: '',
+      idolProfileFilters: createDefaultIdolProfileFilters(),
+      idolRatingFilter: createDefaultIdolRatingFilter(),
+    }),
 
   /**
    * 作品 / 女优列表的「就地补丁」。

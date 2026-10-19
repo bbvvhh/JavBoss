@@ -75,3 +75,48 @@ func TestParseJavIdolFiltersRejectsOutOfBoundsRange(t *testing.T) {
 		})
 	}
 }
+
+func TestParseJavIdolFiltersRatingRange(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/jav/idols?idol_rating_min=1.5&idol_rating_max=4.5", nil)
+
+	filters, ok := parseJavIdolFilters(context)
+	if !ok {
+		t.Fatalf("parseJavIdolFilters rejected valid rating range: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if filters.FavoriteRating.Min == nil || filters.FavoriteRating.Max == nil ||
+		*filters.FavoriteRating.Min != 1.5 || *filters.FavoriteRating.Max != 4.5 {
+		t.Fatalf("rating range = %v-%v, want 1.5-4.5", filters.FavoriteRating.Min, filters.FavoriteRating.Max)
+	}
+}
+
+func TestParseJavIdolFiltersRejectsInvalidRatingRange(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name  string
+		query string
+	}{
+		{name: "incomplete", query: "idol_rating_min=2"},
+		{name: "below minimum", query: "idol_rating_min=0.3&idol_rating_max=5"},
+		{name: "above maximum", query: "idol_rating_min=1&idol_rating_max=5.5"},
+		{name: "off step", query: "idol_rating_min=1.2&idol_rating_max=4.8"},
+		{name: "reversed", query: "idol_rating_min=4.5&idol_rating_max=1.5"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			context, _ := gin.CreateTestContext(recorder)
+			context.Request = httptest.NewRequest(http.MethodGet, "/jav/idols?"+test.query, nil)
+
+			if _, ok := parseJavIdolFilters(context); ok {
+				t.Fatalf("parseJavIdolFilters accepted invalid rating range %s", test.query)
+			}
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
+			}
+		})
+	}
+}

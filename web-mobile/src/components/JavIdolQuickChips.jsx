@@ -1,5 +1,10 @@
 import Icon from '@/components/Icons'
-import { findIdolSortOption, idolProfileFilterCount, idolSortLabel } from '@/constants/jav'
+import {
+  findIdolSortOption,
+  idolProfileFilterCount,
+  idolSortLabel,
+  normalizeIdolRatingFilter,
+} from '@/constants/jav'
 import { useStore } from '@/store'
 import { configString } from '@/utils/config'
 import { zh } from '@/utils/i18n'
@@ -39,10 +44,14 @@ function Count({ value }) {
 export default function JavIdolQuickChips({ onOpenIdolSheet }) {
   const idolSort = useStore((state) => state.idolSort)
   const profileFilters = useStore((state) => state.idolProfileFilters)
+  const ratingFilter = useStore((state) => state.idolRatingFilter)
   const config = useStore((state) => state.config)
   const resetIdolControls = useStore((state) => state.resetIdolControls)
 
-  const profileCount = idolProfileFilterCount(profileFilters)
+  // 喜爱度区间和资料范围共用同一个抽屉与入口，计数也合在一起。
+  const profileCount =
+    idolProfileFilterCount(profileFilters) +
+    (normalizeIdolRatingFilter(ratingFilter).enabled ? 1 : 0)
   const hasAny = profileCount > 0 || Boolean(idolSort)
 
   // 与作品页的排序 chip 一致：直接显示当前生效的排序项，而不是干巴巴的「排序」。

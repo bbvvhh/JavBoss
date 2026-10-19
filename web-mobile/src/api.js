@@ -414,9 +414,12 @@ export async function fetchJavTags() {
 /**
  * 女优列表。
  *
- * `profileRanges` 是「资料范围筛选」，键名就是后端 parseJavIdolIntRange 认的
+ * `profileRanges` 是「资料范围筛选」，键名就是后端认的
  * `idol_<key>_min` / `idol_<key>_max`（如 `idol_height_min`）。**两端必须成对
  * 出现**，只给一边后端直接 400，所以由调用方只传已启用、且 min ≤ max 的项。
+ *
+ * 喜爱度区间同样走这条通道：key 固定为 `rating`，即 `idol_rating_min/max`
+ * （浮点、0.5 一档、闭区间），与作品那套 `favorite_rating` 取值一致。
  */
 export async function fetchJavIdols({
   limit = 24,
@@ -472,6 +475,17 @@ export async function updateJavIdolCover(
   return requestJSON('PUT', `/jav/idols/${encodeURIComponent(id)}/cover`, {
     body: { jav_id: javId, crop_left: cropLeft },
   })
+}
+
+/**
+ * 保存女优资料 / 喜爱度（只写数据库）。
+ *
+ * 作品走 `updateJavItem`（`PUT /jav/items/:id`），女优是另一张表、另一条路由
+ * （后端注册的是 `PATCH /jav/idols/:id`）。部分更新：只提交请求体里出现的键，
+ * 喜爱度传 `{ favorite_rating: value }`，0 表示清除；不改就不带该字段。
+ */
+export async function updateJavIdol(id, payload) {
+  return requestJSON('PATCH', `/jav/idols/${encodeURIComponent(id)}`, { body: payload || {} })
 }
 
 export async function fetchJavStudios({ limit = 24, offset = 0, search = '' } = {}) {

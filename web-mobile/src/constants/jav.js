@@ -183,6 +183,17 @@ export const IDOL_SORT_OPTIONS = [
     asc: ['小→大', 'small→large'],
     desc: ['大→小', 'large→small'],
   },
+  // 喜爱度排序：key 与作品那套完全一致（`favorite_rating` 降序 / `favorite_rating_asc` 升序），
+  // 这样后端 / 地址栏 / 设置页可以共用同一批取值。追加在末尾，默认排序仍是 work。
+  {
+    base: 'favorite_rating',
+    defaultValue: 'favorite_rating',
+    ascValue: 'favorite_rating_asc',
+    descValue: 'favorite_rating',
+    label: ['喜爱度', 'Rating'],
+    asc: ['低→高', 'low→high'],
+    desc: ['高→低', 'high→low'],
+  },
 ]
 
 const idolSortValues = new Set(
@@ -302,6 +313,45 @@ export function idolProfileRangeParams(filters) {
   return IDOL_PROFILE_FILTER_DEFINITIONS.filter(
     (definition) => normalized[definition.key].enabled
   ).map((definition) => ({ key: definition.key, ...normalized[definition.key] }))
+}
+
+/**
+ * 女优喜爱度区间筛选。
+ *
+ * 与作品的 `favoriteRatingEnabled/Min/Max` 是同一套取值：0.5~5、0.5 一档、闭区间。
+ * 后端参数是 `idol_rating_min` / `idol_rating_max`，所以这里仍然借
+ * `fetchJavIdols` 的 profileRanges 通道（key = `rating`）下发，成对出现。
+ */
+export const IDOL_RATING_MIN = 0.5
+export const IDOL_RATING_MAX = 5
+
+function clampIdolRating(value) {
+  const clamped = Math.max(IDOL_RATING_MIN, Math.min(IDOL_RATING_MAX, Number(value)))
+  return Math.round(clamped * 2) / 2
+}
+
+export function createDefaultIdolRatingFilter() {
+  return { enabled: false, min: IDOL_RATING_MIN, max: IDOL_RATING_MAX }
+}
+
+export function normalizeIdolRatingFilter(value) {
+  const source = value && typeof value === 'object' ? value : {}
+  const rawMin = Number(source.min)
+  const rawMax = Number(source.max)
+  const min = clampIdolRating(Number.isFinite(rawMin) ? rawMin : IDOL_RATING_MIN)
+  const max = clampIdolRating(Number.isFinite(rawMax) ? rawMax : IDOL_RATING_MAX)
+  return {
+    enabled: Boolean(source.enabled),
+    min: Math.min(min, max),
+    max: Math.max(min, max),
+  }
+}
+
+/** 已启用的喜爱度区间 → `fetchJavIdols` 的 profileRanges（`idol_rating_min/max`）。 */
+export function idolRatingRangeParams(filter) {
+  const normalized = normalizeIdolRatingFilter(filter)
+  if (!normalized.enabled) return []
+  return [{ key: 'rating', min: normalized.min, max: normalized.max }]
 }
 
 export function buildSortChoices(options) {

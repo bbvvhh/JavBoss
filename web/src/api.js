@@ -1173,6 +1173,9 @@ export async function fetchJavIdols({
   sort = '',
   favoriteGroupId = null,
   profileFilters = {},
+  favoriteRatingEnabled = false,
+  favoriteRatingMin = 0.5,
+  favoriteRatingMax = 5,
 } = {}) {
   const params = new URLSearchParams()
   params.set('limit', String(limit))
@@ -1180,6 +1183,10 @@ export async function fetchJavIdols({
   if (search) params.set('search', search)
   if (sort) params.set('sort', sort)
   if (favoriteGroupId) params.set('favorite_group_id', String(favoriteGroupId))
+  if (favoriteRatingEnabled) {
+    params.set('idol_rating_min', String(favoriteRatingMin))
+    params.set('idol_rating_max', String(favoriteRatingMax))
+  }
   for (const key of ['height', 'age', 'cup', 'bust', 'waist', 'hips']) {
     const value = profileFilters?.[key]
     if (!value?.enabled) continue

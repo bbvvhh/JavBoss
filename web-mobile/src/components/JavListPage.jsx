@@ -4,7 +4,12 @@ import { fetchJavIdols, fetchJavSeries, fetchJavStudios, fetchJavs } from '@/api
 import Icon from '@/components/Icons'
 import IdolCover from '@/components/IdolCover'
 import JavWorkCard from '@/components/JavWorkCard'
-import { JAV_DENSITY_COLUMNS, idolProfileRangeParams, normalizeIdolSort } from '@/constants/jav'
+import {
+  JAV_DENSITY_COLUMNS,
+  idolProfileRangeParams,
+  idolRatingRangeParams,
+  normalizeIdolSort,
+} from '@/constants/jav'
 import useHideOnScroll from '@/hooks/useHideOnScroll'
 import useScrollRestoration from '@/hooks/useScrollRestoration'
 import { idolPatchKey, javPatchKey, useStore } from '@/store'
@@ -81,6 +86,7 @@ export default function JavListPage({ chipsVisible = false }) {
   const filters = useStore((state) => state.javFilters)
   const idolTempSort = useStore((state) => state.idolSort)
   const idolProfileFilters = useStore((state) => state.idolProfileFilters)
+  const idolRatingFilter = useStore((state) => state.idolRatingFilter)
   const config = useStore((state) => state.config)
   // 详情页里改过喜爱度 / 收藏夹的条目：列表本身是无限滚动的本地状态，
   // 用 store 里的增量补丁合并回来，否则返回列表看不到刚改的值。
@@ -96,7 +102,14 @@ export default function JavListPage({ chipsVisible = false }) {
   const pageSize = javPageSize(config, tab)
   // 女优页的排序与资料筛选：临时排序优先，为空则用全局设置里的 idol_sort。
   const idolSort = idolTempSort || normalizeIdolSort(configString(config, 'idol_sort', 'work'))
-  const idolRanges = useMemo(() => idolProfileRangeParams(idolProfileFilters), [idolProfileFilters])
+  // 资料范围 + 喜爱度区间共用一个 profileRanges 通道（喜爱度 key = rating → idol_rating_min/max）。
+  const idolRanges = useMemo(
+    () => [
+      ...idolProfileRangeParams(idolProfileFilters),
+      ...idolRatingRangeParams(idolRatingFilter),
+    ],
+    [idolProfileFilters, idolRatingFilter]
+  )
   const prefs = javDisplayPrefs(config)
 
   // 随机模式只属于作品页：后端 `/jav/idols` 不支持 seed，切到女优页后必须当它不存在，
@@ -339,12 +352,19 @@ export default function JavListPage({ chipsVisible = false }) {
                       onClick={() => pushPage('jav-idol', idol)}
                       className="overflow-hidden rounded-card border border-[#e6e8ec] bg-white text-left"
                     >
-                      <IdolCover
-                        code={idol.cover_code}
-                        alt={primary}
-                        cropLeft={idol.cover_crop_left}
-                        className="w-full"
-                      />
+                      <div className="relative">
+                        <IdolCover
+                          code={idol.cover_code}
+                          alt={primary}
+                          cropLeft={idol.cover_crop_left}
+                          className="w-full"
+                        />
+                        {!compact && Number(idol.favorite_rating) > 0 ? (
+                          <span className="absolute bottom-1.5 right-1.5 rounded bg-black/60 px-1.5 py-[1px] text-[10px] font-bold text-white">
+                            ★ {Number(idol.favorite_rating).toFixed(1)}
+                          </span>
+                        ) : null}
+                      </div>
                       <div className={compact ? 'px-1 pb-1.5 pt-1' : 'px-1.5 pb-2 pt-1.5'}>
                         <h3
                           className={`line-clamp-2 font-semibold leading-[1.3] text-zinc-800 ${

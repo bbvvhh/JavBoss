@@ -106,17 +106,18 @@ type JavUpdateInput struct {
 
 // JavIdolUpdateInput contains user-editable JAV idol profile fields.
 type JavIdolUpdateInput struct {
-	Name         string
-	RomanName    string
-	JapaneseName string
-	ChineseName  string
-	HeightCM     *int
-	BirthDate    *time.Time
-	Bust         *int
-	Waist        *int
-	Hips         *int
-	Cup          *int
-	Aliases      []string
+	Name           string
+	RomanName      string
+	JapaneseName   string
+	ChineseName    string
+	HeightCM       *int
+	BirthDate      *time.Time
+	Bust           *int
+	Waist          *int
+	Hips           *int
+	Cup            *int
+	Aliases        []string
+	FavoriteRating *float64
 }
 
 // JavStudioUpdateInput contains user-editable JAV studio fields.
@@ -1984,23 +1985,24 @@ func ListSeriesCoverCodes(ctx context.Context, seriesID int64, directoryIDs []in
 
 // JavIdolSummary represents idol info with aggregated work count and cover selection.
 type JavIdolSummary struct {
-	ID            int64      `json:"id"`
-	Name          string     `json:"name"`
-	Aliases       []string   `json:"aliases,omitempty" gorm:"-"`
-	RomanName     string     `json:"roman_name"`
-	JapaneseName  string     `json:"japanese_name"`
-	ChineseName   string     `json:"chinese_name"`
-	HeightCM      *int       `json:"height_cm"`
-	BirthDate     *time.Time `json:"birth_date"`
-	Bust          *int       `json:"bust"`
-	Waist         *int       `json:"waist"`
-	Hips          *int       `json:"hips"`
-	Cup           *int       `json:"cup"`
-	WorkCount     int64      `json:"work_count"`
-	CoverJavID    *int64     `json:"cover_jav_id"`
-	CoverCode     string     `json:"cover_code"`
-	CoverCropLeft float64    `json:"cover_crop_left"`
-	FavoriteCount int64      `json:"favorite_count"`
+	ID             int64      `json:"id"`
+	Name           string     `json:"name"`
+	Aliases        []string   `json:"aliases,omitempty" gorm:"-"`
+	RomanName      string     `json:"roman_name"`
+	JapaneseName   string     `json:"japanese_name"`
+	ChineseName    string     `json:"chinese_name"`
+	HeightCM       *int       `json:"height_cm"`
+	BirthDate      *time.Time `json:"birth_date"`
+	Bust           *int       `json:"bust"`
+	Waist          *int       `json:"waist"`
+	Hips           *int       `json:"hips"`
+	Cup            *int       `json:"cup"`
+	WorkCount      int64      `json:"work_count"`
+	CoverJavID     *int64     `json:"cover_jav_id"`
+	CoverCode      string     `json:"cover_code"`
+	CoverCropLeft  float64    `json:"cover_crop_left"`
+	FavoriteCount  int64      `json:"favorite_count"`
+	FavoriteRating float64    `json:"favorite_rating"`
 }
 
 // JavIdolIntRange is an inclusive numeric range used by idol profile filters.
@@ -2009,14 +2011,21 @@ type JavIdolIntRange struct {
 	Max *int
 }
 
+// JavIdolFloatRange is an inclusive decimal range used by the idol favorite rating filter.
+type JavIdolFloatRange struct {
+	Min *float64
+	Max *float64
+}
+
 // JavIdolFilters contains optional profile ranges for the idol list.
 type JavIdolFilters struct {
-	Height JavIdolIntRange
-	Age    JavIdolIntRange
-	Cup    JavIdolIntRange
-	Bust   JavIdolIntRange
-	Waist  JavIdolIntRange
-	Hips   JavIdolIntRange
+	Height         JavIdolIntRange
+	Age            JavIdolIntRange
+	Cup            JavIdolIntRange
+	Bust           JavIdolIntRange
+	Waist          JavIdolIntRange
+	Hips           JavIdolIntRange
+	FavoriteRating JavIdolFloatRange
 }
 
 // JavIdolCoverOption represents one visible JAV work that can be used as an idol card cover.
@@ -2084,7 +2093,7 @@ func GetJavIdolSummary(ctx context.Context, idolID int64, directoryIDs []int64) 
 	var item JavIdolSummary
 	tx := common.DB.WithContext(ctx).
 		Table("jav_idol ji").
-		Select("ji.id, ji.name, ji.roman_name, ji.japanese_name, ji.chinese_name, ji.height_cm, ji.birth_date, ji.bust, ji.waist, ji.hips, ji.cup, COALESCE(idol_work_counts.work_count, 0) AS work_count, ji.cover_jav_id, COALESCE(NULLIF(cover_jav.code, ''), solo_idols.cover_code) AS cover_code, COALESCE(ji.cover_crop_left, 0.53) AS cover_crop_left, COALESCE(favorite_counts.favorite_count, 0) AS favorite_count").
+		Select("ji.id, ji.name, ji.roman_name, ji.japanese_name, ji.chinese_name, ji.height_cm, ji.birth_date, ji.bust, ji.waist, ji.hips, ji.cup, COALESCE(idol_work_counts.work_count, 0) AS work_count, ji.cover_jav_id, COALESCE(NULLIF(cover_jav.code, ''), solo_idols.cover_code) AS cover_code, COALESCE(ji.cover_crop_left, 0.53) AS cover_crop_left, COALESCE(favorite_counts.favorite_count, 0) AS favorite_count, ji.favorite_rating").
 		Joins("LEFT JOIN (?) idol_work_counts ON idol_work_counts.jav_idol_id = ji.id", buildVisibleIdolWorkCountQuery(ctx, directoryIDs)).
 		Joins("LEFT JOIN (?) solo_idols ON solo_idols.jav_idol_id = ji.id", buildVisibleSoloIdolCoverQuery(ctx, directoryIDs)).
 		Joins("LEFT JOIN jav cover_jav ON cover_jav.id = ji.cover_jav_id").
@@ -2116,7 +2125,7 @@ func ResolveJavIdols(ctx context.Context, ids []int64) ([]JavIdolSummary, error)
 	var items []JavIdolSummary
 	if err := common.DB.WithContext(ctx).
 		Table("jav_idol ji").
-		Select("ji.id, ji.name").
+		Select("ji.id, ji.name, ji.favorite_rating").
 		Where("ji.id IN ?", cleanIDs).
 		Order("ji.name").
 		Scan(&items).Error; err != nil {
@@ -2147,7 +2156,7 @@ func ListJavIdolOptions(ctx context.Context, search string, limit, offset int, d
 
 	var items []JavIdolSummary
 	if err := base.
-		Select("ji.id, ji.name, ji.roman_name, ji.japanese_name, ji.chinese_name, ji.height_cm, ji.birth_date, ji.bust, ji.waist, ji.hips, ji.cup, COALESCE(idol_work_counts.work_count, 0) AS work_count, COALESCE(ji.cover_crop_left, 0.53) AS cover_crop_left").
+		Select("ji.id, ji.name, ji.roman_name, ji.japanese_name, ji.chinese_name, ji.height_cm, ji.birth_date, ji.bust, ji.waist, ji.hips, ji.cup, COALESCE(idol_work_counts.work_count, 0) AS work_count, COALESCE(ji.cover_crop_left, 0.53) AS cover_crop_left, ji.favorite_rating").
 		Joins("LEFT JOIN (?) idol_work_counts ON idol_work_counts.jav_idol_id = ji.id", buildVisibleIdolWorkCountQuery(ctx, directoryIDs)).
 		Order("ji.name ASC, ji.id ASC").
 		Limit(limit).
@@ -2225,6 +2234,10 @@ func ListJavIdols(ctx context.Context, search, sort string, limit, offset int, d
 		order = "ji.cup IS NULL, ji.cup DESC, ji.name ASC"
 	case "cup_asc":
 		order = "ji.cup IS NULL, ji.cup ASC, ji.name ASC"
+	case "favorite_rating", "favorite_rating_desc":
+		order = "ji.favorite_rating DESC, ji.created_at DESC, ji.id DESC"
+	case "favorite_rating_asc":
+		order = "ji.favorite_rating = 0 ASC, ji.favorite_rating ASC, ji.created_at DESC, ji.id DESC"
 	case "work_asc", "work_count_asc", "count_asc":
 		order = "work_count ASC, ji.name ASC"
 	case "work", "work_desc", "work_count", "work_count_desc", "count", "count_desc", "":
@@ -2253,8 +2266,8 @@ func ListJavIdols(ctx context.Context, search, sort string, limit, offset int, d
 	base = applyJavIdolFilters(base, filters, filterDate)
 	if err := base.
 		Joins("LEFT JOIN jav cover_jav ON cover_jav.id = ji.cover_jav_id").
-		Select("ji.id, ji.name, ji.roman_name, ji.japanese_name, ji.chinese_name, ji.height_cm, ji.birth_date, ji.bust, ji.waist, ji.hips, ji.cup, COUNT(DISTINCT j.id) AS work_count, ji.cover_jav_id, COALESCE(NULLIF(cover_jav.code, ''), solo_idols.cover_code) AS cover_code, COALESCE(ji.cover_crop_left, 0.53) AS cover_crop_left, COALESCE(favorite_counts.favorite_count, 0) AS favorite_count").
-		Group("ji.id, ji.name, ji.roman_name, ji.japanese_name, ji.chinese_name, ji.height_cm, ji.birth_date, ji.bust, ji.waist, ji.hips, ji.cup, ji.cover_jav_id, cover_jav.code, ji.cover_crop_left, solo_idols.cover_code, favorite_counts.favorite_count").
+		Select("ji.id, ji.name, ji.roman_name, ji.japanese_name, ji.chinese_name, ji.height_cm, ji.birth_date, ji.bust, ji.waist, ji.hips, ji.cup, COUNT(DISTINCT j.id) AS work_count, ji.cover_jav_id, COALESCE(NULLIF(cover_jav.code, ''), solo_idols.cover_code) AS cover_code, COALESCE(ji.cover_crop_left, 0.53) AS cover_crop_left, COALESCE(favorite_counts.favorite_count, 0) AS favorite_count, ji.favorite_rating").
+		Group("ji.id, ji.name, ji.roman_name, ji.japanese_name, ji.chinese_name, ji.height_cm, ji.birth_date, ji.bust, ji.waist, ji.hips, ji.cup, ji.cover_jav_id, cover_jav.code, ji.cover_crop_left, solo_idols.cover_code, favorite_counts.favorite_count, ji.favorite_rating").
 		Order(order).
 		Limit(limit).
 		Offset(offset).
@@ -2274,6 +2287,7 @@ func applyJavIdolFilters(q *gorm.DB, filters JavIdolFilters, now time.Time) *gor
 	q = applyJavIdolIntRange(q, "ji.bust", filters.Bust)
 	q = applyJavIdolIntRange(q, "ji.waist", filters.Waist)
 	q = applyJavIdolIntRange(q, "ji.hips", filters.Hips)
+	q = applyJavIdolFloatRange(q, "ji.favorite_rating", filters.FavoriteRating)
 	if filters.Age.Min != nil {
 		latestBirthDate := now.AddDate(-*filters.Age.Min, 0, 0).Format("2006-01-02")
 		q = q.Where("date(ji.birth_date) <= ?", latestBirthDate)
@@ -2286,6 +2300,16 @@ func applyJavIdolFilters(q *gorm.DB, filters JavIdolFilters, now time.Time) *gor
 }
 
 func applyJavIdolIntRange(q *gorm.DB, column string, value JavIdolIntRange) *gorm.DB {
+	if value.Min != nil {
+		q = q.Where(column+" >= ?", *value.Min)
+	}
+	if value.Max != nil {
+		q = q.Where(column+" <= ?", *value.Max)
+	}
+	return q
+}
+
+func applyJavIdolFloatRange(q *gorm.DB, column string, value JavIdolFloatRange) *gorm.DB {
 	if value.Min != nil {
 		q = q.Where(column+" >= ?", *value.Min)
 	}
@@ -2341,7 +2365,20 @@ func UpdateJavIdol(ctx context.Context, idolID int64, input JavIdolUpdateInput, 
 		return nil, errors.New("idol id must be positive")
 	}
 	input.Name = strings.TrimSpace(input.Name)
-	if input.Name == "" {
+
+	var favoriteRating *float64
+	if input.FavoriteRating != nil {
+		rating := *input.FavoriteRating
+		if math.IsNaN(rating) || math.IsInf(rating, 0) ||
+			rating < 0 || rating > 5 || rating*2 != math.Trunc(rating*2) {
+			return nil, errors.New("favorite rating must be 0 or between 0.5 and 5 in 0.5 increments")
+		}
+		favoriteRating = &rating
+	}
+
+	// A request that only carries favorite_rating must not touch the profile or aliases.
+	ratingOnly := favoriteRating != nil && !javIdolProfileFieldsPresent(input)
+	if !ratingOnly && input.Name == "" {
 		return nil, errors.New("idol name cannot be empty")
 	}
 
@@ -2351,39 +2388,48 @@ func UpdateJavIdol(ctx context.Context, idolID int64, input JavIdolUpdateInput, 
 			return fmt.Errorf("find jav idol: %w", err)
 		}
 
-		var duplicateNameCount int64
-		if err := tx.Model(&models.JavIdol{}).
-			Where("id <> ? AND name = ?", idolID, input.Name).
-			Count(&duplicateNameCount).Error; err != nil {
-			return fmt.Errorf("check jav idol name: %w", err)
-		}
-		if duplicateNameCount > 0 {
-			return errors.New("idol name already exists")
-		}
+		updates := map[string]any{}
+		var aliases []string
+		if !ratingOnly {
+			var duplicateNameCount int64
+			if err := tx.Model(&models.JavIdol{}).
+				Where("id <> ? AND name = ?", idolID, input.Name).
+				Count(&duplicateNameCount).Error; err != nil {
+				return fmt.Errorf("check jav idol name: %w", err)
+			}
+			if duplicateNameCount > 0 {
+				return errors.New("idol name already exists")
+			}
 
-		ownNames := []string{input.Name, input.RomanName, input.JapaneseName, input.ChineseName}
-		aliases := normalizeJavIdolAliases(input.Aliases, ownNames...)
-		if err := validateJavIdolAliasesTx(tx, idolID, aliases); err != nil {
-			return err
-		}
+			ownNames := []string{input.Name, input.RomanName, input.JapaneseName, input.ChineseName}
+			aliases = normalizeJavIdolAliases(input.Aliases, ownNames...)
+			if err := validateJavIdolAliasesTx(tx, idolID, aliases); err != nil {
+				return err
+			}
 
-		updates := map[string]any{
-			"name":          input.Name,
-			"roman_name":    strings.TrimSpace(input.RomanName),
-			"japanese_name": strings.TrimSpace(input.JapaneseName),
-			"chinese_name":  strings.TrimSpace(input.ChineseName),
-			"height_cm":     input.HeightCM,
-			"birth_date":    input.BirthDate,
-			"bust":          input.Bust,
-			"waist":         input.Waist,
-			"hips":          input.Hips,
-			"cup":           input.Cup,
+			updates["name"] = input.Name
+			updates["roman_name"] = strings.TrimSpace(input.RomanName)
+			updates["japanese_name"] = strings.TrimSpace(input.JapaneseName)
+			updates["chinese_name"] = strings.TrimSpace(input.ChineseName)
+			updates["height_cm"] = input.HeightCM
+			updates["birth_date"] = input.BirthDate
+			updates["bust"] = input.Bust
+			updates["waist"] = input.Waist
+			updates["hips"] = input.Hips
+			updates["cup"] = input.Cup
 		}
-		if err := tx.Model(&models.JavIdol{}).Where("id = ?", idolID).Updates(updates).Error; err != nil {
-			return fmt.Errorf("update jav idol: %w", err)
+		if favoriteRating != nil {
+			updates["favorite_rating"] = *favoriteRating
 		}
-		if err := replaceJavIdolAliasesTx(tx, idolID, aliases); err != nil {
-			return err
+		if len(updates) > 0 {
+			if err := tx.Model(&models.JavIdol{}).Where("id = ?", idolID).Updates(updates).Error; err != nil {
+				return fmt.Errorf("update jav idol: %w", err)
+			}
+		}
+		if !ratingOnly {
+			if err := replaceJavIdolAliasesTx(tx, idolID, aliases); err != nil {
+				return err
+			}
 		}
 		return nil
 	}); err != nil {
@@ -2391,6 +2437,14 @@ func UpdateJavIdol(ctx context.Context, idolID int64, input JavIdolUpdateInput, 
 	}
 
 	return GetJavIdolSummary(ctx, idolID, directoryIDs)
+}
+
+// javIdolProfileFieldsPresent reports whether an update carries any idol profile
+// field besides favorite_rating.
+func javIdolProfileFieldsPresent(input JavIdolUpdateInput) bool {
+	return input.Name != "" || input.RomanName != "" || input.JapaneseName != "" || input.ChineseName != "" ||
+		input.HeightCM != nil || input.BirthDate != nil || input.Bust != nil || input.Waist != nil ||
+		input.Hips != nil || input.Cup != nil || input.Aliases != nil
 }
 
 func normalizeJavIdolAliases(values []string, ownNames ...string) []string {

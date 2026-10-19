@@ -15,6 +15,7 @@
 import {
   IDOL_PROFILE_FILTER_DEFINITIONS,
   normalizeIdolProfileFilters,
+  normalizeIdolRatingFilter,
   normalizeIdolSort,
   normalizeJavSort,
 } from '@/constants/jav'
@@ -140,6 +141,17 @@ function parseIdolProfileFilters(sp) {
 }
 
 /**
+ * 女优喜爱度区间：与作品 `fav_min/fav_max` 同一套校验（0.5~5、0.5 一档、闭区间），
+ * 键名是 `idol_rating_min/max`。两端都合法才启用，否则返回 null。
+ */
+function parseIdolRatingFilter(sp) {
+  const min = parseFavoriteRating(sp.get('idol_rating_min'))
+  const max = parseFavoriteRating(sp.get('idol_rating_max'))
+  if (min === null || max === null || min > max) return null
+  return { enabled: true, min, max }
+}
+
+/**
  * 解析地址栏。空字符串 / 缺省一律视为「没写」，调用方据此保留设置里的默认值，
  * 而不是拿 `''` 去覆盖（否则刷新一次排序就被打回默认）。
  */
@@ -174,6 +186,7 @@ export function parseUrlState(searchString = '') {
       seed: isJav ? seed : null,
       filters: parseJavFilters(sp),
       idolProfileFilters: parseIdolProfileFilters(sp),
+      idolRatingFilter: parseIdolRatingFilter(sp),
     },
   }
 }
@@ -218,6 +231,13 @@ function appendIdolProfileFilters(sp, filters) {
   }
 }
 
+function appendIdolRatingFilter(sp, filter) {
+  const normalized = normalizeIdolRatingFilter(filter)
+  if (!normalized.enabled) return
+  sp.set('idol_rating_min', String(normalized.min))
+  sp.set('idol_rating_max', String(normalized.max))
+}
+
 /**
  * store 状态 → 地址。随机模式下不写排序：那时排序由 seed 决定，写了反而误导。
  */
@@ -244,6 +264,7 @@ export function buildUrlFromState(state, basePath = '') {
     } else if (tab === 'idols') {
       if (state?.idolSort) sp.set('idol_sort', normalizeIdolSort(state.idolSort, ''))
       appendIdolProfileFilters(sp, state?.idolProfileFilters)
+      appendIdolRatingFilter(sp, state?.idolRatingFilter)
     }
   } else {
     for (const tag of toTagNames(state?.selectedTags)) sp.append('tags', tag)
@@ -292,6 +313,9 @@ export function urlStatePatch(parsed) {
   }
   if (jav.idolProfileFilters) {
     patch.idolProfileFilters = normalizeIdolProfileFilters(jav.idolProfileFilters)
+  }
+  if (jav.idolRatingFilter) {
+    patch.idolRatingFilter = normalizeIdolRatingFilter(jav.idolRatingFilter)
   }
 
   return patch

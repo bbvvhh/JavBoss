@@ -1224,6 +1224,154 @@ func TestSearchJavSortByFavoriteRating(t *testing.T) {
 	}
 }
 
+func TestUpdateJavIdolFavoriteRating(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	now := time.Unix(1710000000, 0).UTC()
+
+	dir := models.Directory{Path: "/tmp/idol-rating"}
+	if err := db.Create(&dir).Error; err != nil {
+		t.Fatalf("create directory: %v", err)
+	}
+	idol := models.JavIdol{Name: "Rated Idol", RomanName: "Rated Roman"}
+	if err := db.Create(&idol).Error; err != nil {
+		t.Fatalf("create idol: %v", err)
+	}
+	if err := db.Create(&models.JavIdolAlias{JavIdolID: idol.ID, Alias: "Keep Alias"}).Error; err != nil {
+		t.Fatalf("create alias: %v", err)
+	}
+	javRec := models.Jav{Code: "IDOL-RATE-001", Title: "Idol rating", FetchedAt: now}
+	if err := db.Create(&javRec).Error; err != nil {
+		t.Fatalf("create jav: %v", err)
+	}
+	if err := db.Create(&models.JavIdolMap{JavID: javRec.ID, JavIdolID: idol.ID}).Error; err != nil {
+		t.Fatalf("create idol map: %v", err)
+	}
+	video := models.Video{DirectoryID: dir.ID, Path: "idol-rate-001.mp4", Filename: "idol-rate-001.mp4", Fingerprint: "fp-idol-rate-001", JavID: &javRec.ID, ModifiedAt: now}
+	if err := db.Create(&video).Error; err != nil {
+		t.Fatalf("create video: %v", err)
+	}
+	createVideoLocationsForVideos(t, db, video)
+
+	rating := 4.5
+	updated, err := UpdateJavIdol(ctx, idol.ID, JavIdolUpdateInput{FavoriteRating: &rating}, nil)
+	if err != nil {
+		t.Fatalf("UpdateJavIdol favorite rating: %v", err)
+	}
+	if updated.FavoriteRating != rating {
+		t.Fatalf("favorite rating = %v, want %v", updated.FavoriteRating, rating)
+	}
+	if updated.Name != "Rated Idol" || updated.RomanName != "Rated Roman" {
+		t.Fatalf("rating-only update changed profile: %#v", updated)
+	}
+	if len(updated.Aliases) != 1 || updated.Aliases[0] != "Keep Alias" {
+		t.Fatalf("rating-only update changed aliases: %#v", updated.Aliases)
+	}
+
+	clearRating := float64(0)
+	updated, err = UpdateJavIdol(ctx, idol.ID, JavIdolUpdateInput{FavoriteRating: &clearRating}, nil)
+	if err != nil {
+		t.Fatalf("clear idol favorite rating: %v", err)
+	}
+	if updated.FavoriteRating != 0 {
+		t.Fatalf("favorite rating after clear = %v, want 0", updated.FavoriteRating)
+	}
+	if updated.Name != "Rated Idol" || len(updated.Aliases) != 1 || updated.Aliases[0] != "Keep Alias" {
+		t.Fatalf("clearing rating changed profile: %#v", updated)
+	}
+
+	for _, invalid := range []float64{-1, 0.3, 5.5} {
+		invalid := invalid
+		if _, err := UpdateJavIdol(ctx, idol.ID, JavIdolUpdateInput{FavoriteRating: &invalid}, nil); err == nil {
+			t.Fatalf("UpdateJavIdol accepted invalid favorite rating %v", invalid)
+		}
+	}
+}
+
+func TestListJavIdolsSortByFavoriteRating(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	now := time.Unix(1710000000, 0).UTC()
+
+	dir := models.Directory{Path: "/tmp/idol-rating-sort"}
+	if err := db.Create(&dir).Error; err != nil {
+		t.Fatalf("create directory: %v", err)
+	}
+
+	idols := []models.JavIdol{
+		{Name: "Low Rated Idol", FavoriteRating: 1.5},
+		{Name: "High Rated Idol", FavoriteRating: 4.5},
+		{Name: "Unrated Idol"},
+	}
+	if err := db.Create(&idols).Error; err != nil {
+		t.Fatalf("create idols: %v", err)
+	}
+
+	for index := range idols {
+		javItem := models.Jav{Code: fmt.Sprintf("IRATE-%03d", index+1), Title: idols[index].Name, FetchedAt: now}
+		if err := db.Create(&javItem).Error; err != nil {
+			t.Fatalf("create jav %d: %v", index, err)
+		}
+		if err := db.Create(&models.JavIdolMap{JavID: javItem.ID, JavIdolID: idols[index].ID}).Error; err != nil {
+			t.Fatalf("create idol map %d: %v", index, err)
+		}
+		video := models.Video{
+			DirectoryID: dir.ID,
+			Path:        fmt.Sprintf("idol-rating-%d.mp4", index),
+			Filename:    fmt.Sprintf("idol-rating-%d.mp4", index),
+			Fingerprint: fmt.Sprintf("idol-rating-fp-%d", index),
+			JavID:       int64Ptr(javItem.ID),
+			ModifiedAt:  now,
+		}
+		if err := db.Create(&video).Error; err != nil {
+			t.Fatalf("create video %d: %v", index, err)
+		}
+		createVideoLocationsForVideos(t, db, video)
+	}
+
+	items, total, err := ListJavIdols(ctx, "", "favorite_rating", 20, 0, nil, 0)
+	if err != nil {
+		t.Fatalf("ListJavIdols favorite_rating: %v", err)
+	}
+	if total != 3 || len(items) != 3 ||
+		items[0].ID != idols[1].ID || items[1].ID != idols[0].ID || items[2].ID != idols[2].ID {
+		t.Fatalf("favorite rating desc order = %#v (total %d)", items, total)
+	}
+
+	items, total, err = ListJavIdols(ctx, "", "favorite_rating_asc", 20, 0, nil, 0)
+	if err != nil {
+		t.Fatalf("ListJavIdols favorite_rating_asc: %v", err)
+	}
+	if total != 3 || len(items) != 3 ||
+		items[0].ID != idols[0].ID || items[1].ID != idols[1].ID || items[2].ID != idols[2].ID {
+		t.Fatalf("favorite rating asc order = %#v (total %d)", items, total)
+	}
+
+	minRating := 2.0
+	maxRating := 5.0
+	items, total, err = ListJavIdols(ctx, "", "", 20, 0, nil, 0, JavIdolFilters{
+		FavoriteRating: JavIdolFloatRange{Min: &minRating, Max: &maxRating},
+	})
+	if err != nil {
+		t.Fatalf("ListJavIdols favorite rating range: %v", err)
+	}
+	if total != 1 || len(items) != 1 || items[0].ID != idols[1].ID {
+		t.Fatalf("favorite rating range result = %#v (total %d)", items, total)
+	}
+
+	edgeMin := 1.5
+	edgeMax := 4.5
+	items, total, err = ListJavIdols(ctx, "", "", 20, 0, nil, 0, JavIdolFilters{
+		FavoriteRating: JavIdolFloatRange{Min: &edgeMin, Max: &edgeMax},
+	})
+	if err != nil {
+		t.Fatalf("ListJavIdols favorite rating inclusive range: %v", err)
+	}
+	if total != 2 || len(items) != 2 || items[0].ID != idols[1].ID || items[1].ID != idols[0].ID {
+		t.Fatalf("favorite rating inclusive range result = %#v (total %d)", items, total)
+	}
+}
+
 func TestListJavStudiosAndSearchByStudio(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()

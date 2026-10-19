@@ -7,10 +7,12 @@ import {
   IDOL_PROFILE_FILTER_DEFINITIONS,
   IDOL_SORT_OPTIONS,
   createDefaultIdolProfileFilters,
+  createDefaultIdolRatingFilter,
   findIdolSortOption,
   formatIdolProfileRange,
   formatIdolProfileValue,
   idolProfileRangeParams,
+  idolRatingRangeParams,
   idolSortDirections,
   idolSortLabel,
   isIdolSortAscending,
@@ -23,6 +25,7 @@ import { formatCount } from '@/utils/format'
 import { zh } from '@/utils/i18n'
 
 const EMPTY_PROFILE_FILTERS = createDefaultIdolProfileFilters()
+const EMPTY_RATING_FILTER = createDefaultIdolRatingFilter()
 
 function SectionTitle({ children, extra }) {
   return (
@@ -126,11 +129,13 @@ function ProfileFilterCard({ definition, value, onChange }) {
 export default function JavIdolFilterSheet({ open, onClose }) {
   const storedSort = useStore((state) => state.idolSort)
   const storedFilters = useStore((state) => state.idolProfileFilters)
+  const storedRating = useStore((state) => state.idolRatingFilter)
   const globalSort = useStore((state) => state.config)
   const searchTerm = useStore((state) => state.searchTerm)
 
   const [draftSort, setDraftSort] = useState(storedSort)
   const [draftFilters, setDraftFilters] = useState(storedFilters)
+  const [draftRating, setDraftRating] = useState(storedRating)
   const [count, setCount] = useState(null)
   const [counting, setCounting] = useState(false)
   const [error, setError] = useState('')
@@ -145,8 +150,9 @@ export default function JavIdolFilterSheet({ open, onClose }) {
     if (!open) return
     setDraftSort(storedSort)
     setDraftFilters(storedFilters)
+    setDraftRating(storedRating)
     setError('')
-  }, [open, storedSort, storedFilters])
+  }, [open, storedSort, storedFilters, storedRating])
 
   // 实时命中数：抽屉开着的时候能看到这套条件还剩多少人。
   useEffect(() => {
@@ -160,7 +166,10 @@ export default function JavIdolFilterSheet({ open, onClose }) {
           offset: 0,
           search: searchTerm,
           sort: effectiveSort,
-          profileRanges: idolProfileRangeParams(draftFilters),
+          profileRanges: [
+            ...idolProfileRangeParams(draftFilters),
+            ...idolRatingRangeParams(draftRating),
+          ],
         })
         if (!cancelled) setCount(resp?.total ?? 0)
       } catch (err) {
@@ -176,14 +185,87 @@ export default function JavIdolFilterSheet({ open, onClose }) {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [open, searchTerm, effectiveSort, draftFilters])
+  }, [open, searchTerm, effectiveSort, draftFilters, draftRating])
 
   const apply = () => {
     const store = useStore.getState()
     store.setIdolSort(draftSort)
     store.setIdolProfileFilters(draftFilters)
+    store.setIdolRatingFilter(draftRating)
     onClose?.()
   }
+
+  // 喜爱度筛选：与作品页的 favoriteRatingSection 完全一致（0.5 一档的双滑块、
+  // 开关关闭时不写参数），只把状态换成女优自己的 draftRating。
+  const favoriteRatingSection = (
+    <div className="mb-5">
+      <SectionTitle>{zh('喜爱度筛选', 'Filter by rating')}</SectionTitle>
+      <div className="rounded-card border border-[#e6e8ec] bg-white px-3.5 py-3">
+        <div className="flex items-center gap-3">
+          <span className="flex-1">
+            <span className="block text-[13.5px] text-zinc-800">
+              {zh('按喜爱度筛选', 'Filter by rating')}
+            </span>
+            <span className="mt-0.5 block text-[11px] text-zinc-400">
+              {draftRating.enabled
+                ? `${draftRating.min} – ${draftRating.max}`
+                : zh('未启用', 'Off')}
+            </span>
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={draftRating.enabled}
+            aria-label={zh('按喜爱度筛选', 'Filter by rating')}
+            onClick={() => setDraftRating((current) => ({ ...current, enabled: !current.enabled }))}
+            className={`relative h-[25px] w-[42px] flex-none rounded-full ${
+              draftRating.enabled ? 'bg-brand' : 'bg-[#d8dbe1]'
+            }`}
+          >
+            <span
+              className={`absolute top-[2.5px] h-5 w-5 rounded-full bg-white shadow transition-all ${
+                draftRating.enabled ? 'right-[2.5px]' : 'left-[2.5px]'
+              }`}
+            />
+          </button>
+        </div>
+        {draftRating.enabled ? (
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              type="range"
+              min={0.5}
+              max={5}
+              step={0.5}
+              value={draftRating.min}
+              onChange={(event) =>
+                setDraftRating((current) => ({
+                  ...current,
+                  min: Math.min(Number(event.target.value), current.max),
+                }))
+              }
+              aria-label={zh('最低喜爱度', 'Minimum rating')}
+              className="flex-1 accent-blue-600"
+            />
+            <input
+              type="range"
+              min={0.5}
+              max={5}
+              step={0.5}
+              value={draftRating.max}
+              onChange={(event) =>
+                setDraftRating((current) => ({
+                  ...current,
+                  max: Math.max(Number(event.target.value), current.min),
+                }))
+              }
+              aria-label={zh('最高喜爱度', 'Maximum rating')}
+              className="flex-1 accent-blue-600"
+            />
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
 
   return (
     <BottomSheet
@@ -198,6 +280,7 @@ export default function JavIdolFilterSheet({ open, onClose }) {
             onClick={() => {
               setDraftSort('')
               setDraftFilters(EMPTY_PROFILE_FILTERS)
+              setDraftRating(EMPTY_RATING_FILTER)
             }}
             className="h-11 w-20 flex-none rounded-card bg-[#f1f2f5] text-sm font-bold text-zinc-700"
           >
@@ -252,6 +335,8 @@ export default function JavIdolFilterSheet({ open, onClose }) {
           ))}
         </div>
       </div>
+
+      {favoriteRatingSection}
 
       <div className="mb-5">
         <SectionTitle>{zh('资料范围筛选', 'Profile range filters')}</SectionTitle>

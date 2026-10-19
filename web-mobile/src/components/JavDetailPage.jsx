@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { fetchJavs, updateJavItem } from '@/api'
+import { fetchJavs, updateJavIdol, updateJavItem } from '@/api'
 import Icon from '@/components/Icons'
 import IdolCover from '@/components/IdolCover'
 import JavFavoritePickerSheet from '@/components/JavFavoritePickerSheet'
@@ -410,12 +410,17 @@ export function JavIdolPage({ idol, onClose }) {
   const pushPage = useStore((state) => state.pushPage)
   const jumpToJavWorks = useStore((state) => state.jumpToJavWorks)
   const patchJavIdol = useStore((state) => state.patchJavIdol)
+  const showToast = useStore((state) => state.showToast)
   const itemPatches = useStore((state) => state.javItemPatches)
 
   const [works, setWorks] = useState([])
   const [worksLoading, setWorksLoading] = useState(true)
   const [favoriteCount, setFavoriteCount] = useState(() => Number(idol?.favorite_count) || 0)
   const [favoriteOpen, setFavoriteOpen] = useState(false)
+  // 喜爱度：与作品详情页完全一致的交互（点第 N 颗星 = N 分，再点同值清零）。
+  const [rating, setRating] = useState(() => Number(idol?.favorite_rating) || 0)
+  const [ratingSaving, setRatingSaving] = useState(false)
+  const [ratingError, setRatingError] = useState('')
 
   const idolId = Number(idol?.id) || null
   const total = Number(idol?.work_count) || works.length
@@ -427,7 +432,32 @@ export function JavIdolPage({ idol, onClose }) {
 
   useEffect(() => {
     setFavoriteCount(Number(idol?.favorite_count) || 0)
+    setRating(Number(idol?.favorite_rating) || 0)
+    setRatingError('')
   }, [idol])
+
+  const changeRating = async (next) => {
+    if (!idolId || ratingSaving) return
+    const value = Math.max(0, Math.min(5, Math.round(Number(next) * 2) / 2))
+    if (value === rating) return
+    const previous = rating
+    setRating(value)
+    setRatingSaving(true)
+    setRatingError('')
+    try {
+      const updated = await updateJavIdol(idolId, { favorite_rating: value })
+      const saved = Number(updated?.favorite_rating)
+      const finalValue = Number.isFinite(saved) ? saved : value
+      setRating(finalValue)
+      patchJavIdol(idolId, { favorite_rating: finalValue })
+      showToast(zh('喜爱度已保存', 'Rating saved'))
+    } catch (error) {
+      setRating(previous)
+      setRatingError(getErrorMessage(error))
+    } finally {
+      setRatingSaving(false)
+    }
+  }
 
   useEffect(() => {
     if (!idolId) {
@@ -551,6 +581,15 @@ export function JavIdolPage({ idol, onClose }) {
             {zh('暂无资料', 'No profile data')}
           </p>
         ) : null}
+
+        <div className="border-t border-[#f1f2f5] px-3.5 pb-3.5 pt-1">
+          <FavoriteRating value={rating} saving={ratingSaving} onChange={changeRating} />
+          {ratingError ? (
+            <p className="mt-2 rounded-card border border-red-200 bg-red-50 px-3 py-2 text-[12px] leading-relaxed text-red-700">
+              {ratingError}
+            </p>
+          ) : null}
+        </div>
       </section>
 
       <section className="mt-3 bg-white pb-10">
