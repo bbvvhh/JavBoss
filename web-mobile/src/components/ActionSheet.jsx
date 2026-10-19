@@ -113,6 +113,11 @@ export default function ActionSheet() {
             onClick={() => go('scrape', video)}
           />
           <Row
+            icon="download"
+            label={zh('在线刮削', 'Scrape now')}
+            onClick={() => go('scrape-online', video)}
+          />
+          <Row
             icon="rename"
             label={zh('重命名文件', 'Rename file')}
             onClick={() => go('rename', video)}

@@ -19,6 +19,7 @@ import PlaybackHistoryPage from '@/components/PlaybackHistoryPage'
 import PlayerPage from '@/components/PlayerPage'
 import QuickChips from '@/components/QuickChips'
 import RenamePage from '@/components/RenamePage'
+import ScrapeOnlinePage from '@/components/ScrapeOnlinePage'
 import ScrapeSettingsPage from '@/components/ScrapeSettingsPage'
 import ScreenshotsPage from '@/components/ScreenshotsPage'
 import { SearchBar, SearchHints } from '@/components/SearchPanel'
@@ -348,6 +349,9 @@ export default function App() {
       ) : null}
       {topPage?.type === 'scrape' ? (
         <ScrapeSettingsPage video={topPage.payload} onClose={() => useStore.getState().popPage()} />
+      ) : null}
+      {topPage?.type === 'scrape-online' ? (
+        <ScrapeOnlinePage video={topPage.payload} onClose={() => useStore.getState().popPage()} />
       ) : null}
       {topPage?.type === 'tags' ? (
         <TagEditorSheet

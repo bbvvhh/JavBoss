@@ -318,6 +318,12 @@ export async function linkVideoToExistingJav(videoId, locationId, code) {
   })
 }
 
+/** 立即从元数据网站刮削单个视频，返回抓取到的元数据（不写库）。 */
+export async function lookupVideoJavScrape(videoId, provider, code) {
+  const query = new URLSearchParams({ provider: String(provider || ''), code: String(code || '') })
+  return requestJSON('GET', `/videos/${videoId}/jav-scrape/lookup?${query.toString()}`)
+}
+
 /* ---------------- 从媒体库移除（仅改数据库，绝不动文件） ---------------- */
 
 // 需要后端新增 POST /videos/locations/hide（P3 落地）。
