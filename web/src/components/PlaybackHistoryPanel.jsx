@@ -21,6 +21,11 @@ function PlaybackHistoryRow({ item, onPlay }) {
   const thumbnailSrc = `/videos/${video.id}/thumbnail?v=${encodeURIComponent(
     [video?.cover_screenshot_name || '', video?.updated_at || ''].join('|')
   )}`
+  // JAV 模式下存在刮削数据的视频优先展示 JAV 封面，封面缺失时回退到视频缩略图。
+  const javCoverSrc = code ? `/jav/${encodeURIComponent(code)}/cover` : ''
+  const [javCoverFailed, setJavCoverFailed] = useState(false)
+  const [thumbnailFailed, setThumbnailFailed] = useState(false)
+  const coverSrc = javCoverSrc && !javCoverFailed ? javCoverSrc : thumbnailSrc
 
   return (
     <button
@@ -30,15 +35,19 @@ function PlaybackHistoryRow({ item, onPlay }) {
       className="flex w-full items-start gap-3 rounded border border-transparent bg-white p-2 text-left transition hover:border-sky-200 hover:bg-sky-50/60"
     >
       <span className="block h-[3.75rem] w-[6.25rem] flex-none overflow-hidden rounded bg-gray-200">
-        <img
-          src={thumbnailSrc}
-          alt={title}
-          loading="lazy"
-          className="h-full w-full object-cover"
-          onError={(event) => {
-            event.currentTarget.style.display = 'none'
-          }}
-        />
+        {thumbnailFailed ? null : (
+          <img
+            src={coverSrc}
+            alt={title}
+            loading="lazy"
+            className="h-full w-full object-cover"
+            onError={() => {
+              // JAV 封面缺失时回退到视频缩略图，缩略图也失败就只留底色。
+              if (coverSrc === javCoverSrc) setJavCoverFailed(true)
+              else setThumbnailFailed(true)
+            }}
+          />
+        )}
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
