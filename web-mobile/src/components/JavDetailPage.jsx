@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { fetchJavs, updateJavIdol, updateJavItem } from '@/api'
 import Icon from '@/components/Icons'
 import IdolCover from '@/components/IdolCover'
+import JavActorPickerSheet from '@/components/JavActorPickerSheet'
 import JavFavoritePickerSheet from '@/components/JavFavoritePickerSheet'
 import JavWorkCard from '@/components/JavWorkCard'
 import SubPage from '@/components/SubPage'
@@ -123,6 +124,9 @@ function FavoriteRating({ value, saving, onChange }) {
   )
 }
 
+/** 演员列表取自 `jav.idols`；过滤掉没有名字的空壳，避免渲染出空按钮。 */
+const normalizeIdols = (list) => (Array.isArray(list) ? list : []).filter((idol) => idol?.name)
+
 /** JAV 作品详情：元数据 + 本地实际存在的视频文件。 */
 export function JavDetailPage({ jav, onClose }) {
   const openPlayer = useStore((state) => state.openPlayer)
@@ -134,8 +138,13 @@ export function JavDetailPage({ jav, onClose }) {
 
   const javId = Number(jav?.id) || 0
   const localVideos = Array.isArray(jav?.videos) ? jav.videos : []
-  const idolList = (jav?.idols || []).filter((idol) => idol?.name)
   const tags = (jav?.tags || []).map((tag) => tag.name).filter(Boolean)
+
+  // 演员可以在本页编辑（见 JavActorPickerSheet），所以用本地 state 承载，
+  // 保存成功后同时写回列表卡片的补丁表。
+  const [idols, setIdols] = useState(() => normalizeIdols(jav?.idols))
+  const [actorPickerOpen, setActorPickerOpen] = useState(false)
+  const idolList = idols
 
   const [rating, setRating] = useState(() => Number(jav?.favorite_rating) || 0)
   const [ratingSaving, setRatingSaving] = useState(false)
@@ -145,6 +154,8 @@ export function JavDetailPage({ jav, onClose }) {
 
   // 每次压入新作品都重新取一次，避免复用到上一条的状态。
   useEffect(() => {
+    setIdols(normalizeIdols(jav?.idols))
+    setActorPickerOpen(false)
     setRating(Number(jav?.favorite_rating) || 0)
     setFavoriteCount(Number(jav?.favorite_count) || 0)
     setActionError('')
@@ -278,13 +289,15 @@ export function JavDetailPage({ jav, onClose }) {
           </div>
         ) : null}
 
-        {idolList.length ? (
-          <div className="mt-2.5 flex items-start gap-2 text-[12px] text-zinc-600">
-            <span className="mt-[1px] flex-none rounded bg-zinc-100 px-[5px] text-[10px] font-bold leading-[15px] text-zinc-400">
-              {zh('演员', 'Cast')}
-            </span>
-            <span className="flex flex-wrap gap-x-1.5 gap-y-1">
-              {idolList.map((idol, index) => (
+        {/* 演员：点名字进女优详情页；右侧「调整」打开只选已有女优的选择器，
+            用于给刮削不到演员的作品手动补关联。 */}
+        <div className="mt-2.5 flex items-start gap-2 text-[12px] text-zinc-600">
+          <span className="mt-[1px] flex-none rounded bg-zinc-100 px-[5px] text-[10px] font-bold leading-[15px] text-zinc-400">
+            {zh('演员', 'Cast')}
+          </span>
+          <span className="flex min-w-0 flex-1 flex-wrap gap-x-1.5 gap-y-1">
+            {idolList.length ? (
+              idolList.map((idol, index) => (
                 <button
                   key={idol.id ?? idol.name}
                   type="button"
@@ -294,10 +307,20 @@ export function JavDetailPage({ jav, onClose }) {
                   {index > 0 ? <span className="text-zinc-300">· </span> : null}
                   {idol.name}
                 </button>
-              ))}
-            </span>
-          </div>
-        ) : null}
+              ))
+            ) : (
+              <span className="text-zinc-400">{zh('未关联演员', 'No cast linked')}</span>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={() => setActorPickerOpen(true)}
+            disabled={!javId}
+            className="flex-none rounded-lg px-2 py-0.5 text-[11.5px] font-semibold text-brand active:bg-zinc-100 disabled:opacity-40"
+          >
+            {zh('调整', 'Edit')}
+          </button>
+        </div>
 
         {tags.length ? (
           <div className="mt-2 flex items-start gap-2 text-[12px] text-zinc-600">
@@ -392,6 +415,17 @@ export function JavDetailPage({ jav, onClose }) {
           'This page only reads and edits metadata. Use “Rename file” in the video list to touch local files.'
         )}
       </p>
+
+      <JavActorPickerSheet
+        open={actorPickerOpen}
+        jav={jav}
+        onClose={() => setActorPickerOpen(false)}
+        onSaved={(nextIdols) => {
+          const normalized = normalizeIdols(nextIdols)
+          setIdols(normalized)
+          patchJavItem(javId, { idols: normalized })
+        }}
+      />
 
       <JavFavoritePickerSheet
         open={favoriteOpen}
