@@ -218,3 +218,18 @@ type JavIdolMap struct {
 	JavIdol   JavIdol   `gorm:"foreignKey:JavIdolID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
 	CreatedAt time.Time `gorm:"autoCreateTime"`
 }
+
+// JavDuplicateWhitelist marks a JAV work that should be excluded from the
+// duplicate scan. One row per JAV work; Code is kept for display in the
+// whitelist manager.
+type JavDuplicateWhitelist struct {
+	ID        int64     `json:"id" gorm:"primaryKey"`
+	JavID     int64     `json:"jav_id" gorm:"not null;uniqueIndex"`
+	Jav       Jav       `json:"-" gorm:"foreignKey:JavID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
+	Code      string    `json:"code" gorm:"not null;default:''"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (JavDuplicateWhitelist) TableName() string {
+	return "jav_duplicate_whitelist"
+}

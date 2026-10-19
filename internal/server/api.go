@@ -112,6 +112,10 @@ func RegisterRoutes(router gin.IRoutes) {
 	router.POST("/videos/tags/replace", replaceTagsForVideos)
 
 	router.GET("/jav", searchJav)
+	router.GET("/jav/duplicates", listJavDuplicates)
+	router.GET("/jav/duplicate-whitelist", listJavDuplicateWhitelist)
+	router.POST("/jav/duplicate-whitelist", addJavDuplicateWhitelist)
+	router.POST("/jav/duplicate-whitelist/remove", removeJavDuplicateWhitelist)
 	router.GET("/jav/filter-options", listJavFilterOptions)
 	router.GET("/jav/avsox-redirect", redirectJavAvsox)
 	router.GET("/jav/javdb-url", getJavJavDBURL)

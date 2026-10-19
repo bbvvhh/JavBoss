@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import CollectionsBookmarkOutlinedIcon from '@mui/icons-material/CollectionsBookmarkOutlined'
+import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined'
 import DisplaySettingsOutlinedIcon from '@mui/icons-material/DisplaySettingsOutlined'
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined'
 import LocalOfferOutlinedIcon from '@mui/icons-material/LocalOfferOutlined'
@@ -60,6 +61,7 @@ export default function SideTabs({
   javPrefix = '',
   buildJavPrefixUrl,
   onBrowserBack,
+  onOpenJavDuplicates,
   onBrowserForward,
   onOpenDownload,
   onOpenGlobalSettings,
@@ -145,6 +147,13 @@ export default function SideTabs({
             label={zh('显示', 'Display')}
             onClick={isJavMode ? onOpenJavSettings : onOpenVideoSettings}
           />
+          {isJavMode ? (
+            <RailButton
+              icon={ContentCopyOutlinedIcon}
+              label={zh('查重', 'Duplicates')}
+              onClick={onOpenJavDuplicates}
+            />
+          ) : null}
         </div>
       </nav>
 

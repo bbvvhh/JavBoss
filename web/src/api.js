@@ -791,6 +791,51 @@ export async function fetchJavs({
   return res.json()
 }
 
+export async function fetchJavDuplicates({ limit = 25, offset = 0, search = '', sort = '' } = {}) {
+  const params = new URLSearchParams()
+  params.set('limit', String(limit))
+  params.set('offset', String(offset))
+  if (search) params.set('search', search)
+  if (sort) params.set('sort', sort)
+  const res = await apiFetch(`/jav/duplicates?${params.toString()}`)
+  if (!res.ok) {
+    throw await apiError(res)
+  }
+  return res.json()
+}
+
+export async function fetchJavDuplicateWhitelist() {
+  const res = await apiFetch('/jav/duplicate-whitelist')
+  if (!res.ok) {
+    throw await apiError(res)
+  }
+  return res.json()
+}
+
+export async function addJavDuplicateWhitelist(javIds) {
+  const res = await apiFetch('/jav/duplicate-whitelist', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ jav_ids: javIds }),
+  })
+  if (!res.ok) {
+    throw await apiError(res)
+  }
+  return res.json()
+}
+
+export async function removeJavDuplicateWhitelist(javIds) {
+  const res = await apiFetch('/jav/duplicate-whitelist/remove', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ jav_ids: javIds }),
+  })
+  if (!res.ok) {
+    throw await apiError(res)
+  }
+  return res.json()
+}
+
 export async function fetchJavFilterOptions({
   search = '',
   idolIds = [],

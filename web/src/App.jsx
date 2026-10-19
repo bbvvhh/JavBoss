@@ -49,6 +49,7 @@ import {
 } from '@/api'
 import GlobalSettingsModal from '@/components/GlobalSettingsModal'
 import DownloadView from '@/components/DownloadView'
+import JavDuplicateDialog from '@/components/JavDuplicateDialog'
 import JavFavoriteManageModal from '@/components/JavFavoriteManageModal'
 import JavFavoriteModal from '@/components/JavFavoriteModal'
 import JavQueryEditorModal from '@/components/JavQueryEditorModal'
@@ -307,6 +308,7 @@ export default function App() {
   const [javTagModalOpen, setJavTagModalOpen] = useState(false)
   const [javTagCategories, setJavTagCategories] = useState([])
   const [javQueryEditorOpen, setJavQueryEditorOpen] = useState(false)
+  const [javDuplicateOpen, setJavDuplicateOpen] = useState(false)
   const [javVideoPickerOpen, setJavVideoPickerOpen] = useState(false)
   const [javVideoPickerItem, setJavVideoPickerItem] = useState(null)
   const [javVideoPickerAction, setJavVideoPickerAction] = useState('play')
@@ -4266,6 +4268,7 @@ export default function App() {
         onBrowserForward={handleBrowserForward}
         onOpenDownload={() => setDownloadOpen(true)}
         onOpenGlobalSettings={() => setGlobalSettingsOpen(true)}
+        onOpenJavDuplicates={() => setJavDuplicateOpen(true)}
         onOpenJavSettings={openJavSettings}
         onOpenJavTagModal={handleOpenJavTagModal}
         onJavPrefixClick={handleSelectJavPrefix}
@@ -4726,6 +4729,38 @@ export default function App() {
         buildVideoFullPath={buildVideoFullPath}
         isVideoOpenable={isVideoOpenable}
         onSelectVideo={handleSelectJavVideo}
+      />
+
+      <JavDuplicateDialog
+        open={javDuplicateOpen}
+        onClose={() => setJavDuplicateOpen(false)}
+        gridColumns={javGridColumns}
+        titleMaxRows={javTitleMaxRows}
+        idolTagMaxRows={javIdolTagMaxRows}
+        tagMaxRows={javTagMaxRows}
+        cardProps={{
+          mpvEnabled,
+          alternatePlayerLabel,
+          onPlay: handleJavPlay,
+          onOpenFile: handleJavOpenFile,
+          onRevealFile: handleJavRevealFile,
+          onOpenScreenshots: handleJavOpenScreenshots,
+          onManageVideoPlay: handleOpenPlayer,
+          onManageVideoPlayAtTime: playVideoFromTime,
+          onManageVideoCoverChanged: handleVideoCoverChanged,
+          onManageVideoOpenFile: handleOpenAlternatePlayer,
+          onManageVideoRevealFile: handleRevealVideoFile,
+          onManageVideoOpenTagPicker: openTagEditor,
+          onManageVideoOpenScreenshots: openJavScreenshots,
+          onManageVideoOpenScrapeSettings: handleOpenScrapeSettings,
+          onManageVideoRename: handleRenameVideo,
+          onManageVideoDelete: handleDeleteVideo,
+          onManageVideoTagClick: handleVideoTagClick,
+          onOpenFavorites: handleOpenIdolFavoriteModal,
+          onOpenJavFavorites: (item) => handleOpenFavoriteModal('jav', item),
+          onOpenStudioFavorites: (studio) => handleOpenFavoriteModal('studio', studio),
+          onOpenSeriesFavorites: (series) => handleOpenFavoriteModal('series', series),
+        }}
       />
 
       <JavFavoriteModal
