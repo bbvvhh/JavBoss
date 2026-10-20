@@ -101,8 +101,8 @@ test('removeJavDuplicateWhitelist 走 /jav/duplicate-whitelist/remove', async ()
   assert.deepEqual(JSON.parse(mock.calls[0].init.body), { jav_ids: [3] })
 })
 
-test('查重页只从 @/api 引入查重接口，不碰任何文件删除能力', () => {
-  const source = readFileSync(
+function readDuplicatePageSource() {
+  return readFileSync(
     join(
       dirname(fileURLToPath(import.meta.url)),
       '..',
@@ -112,6 +112,35 @@ test('查重页只从 @/api 引入查重接口，不碰任何文件删除能力'
     ),
     'utf8'
   )
+}
+
+test('查重列表默认是普通浏览态，不硬编码多选', () => {
+  const source = readDuplicatePageSource()
+
+  // 回归：曾经把 selectionMode 直接写死成多选，导致点封面 / 标题全被拦掉。
+  assert.ok(
+    source.includes('const [selectionMode, setSelectionMode] = useState(false)'),
+    '多选态必须是默认关闭的 state'
+  )
+  assert.ok(source.includes('selectionMode={selectionMode}'), '卡片的多选态要跟随 state')
+  // 普通态下点封面播放、点标题进详情，与 JAV 作品列表一致。
+  assert.ok(source.includes("pushPage('jav-detail', value)"), '普通态要能打开作品详情')
+  assert.ok(!/<JavWorkCard[\s\S]*?\n\s+selectionMode\n/.test(source), '不得裸写 selectionMode prop')
+})
+
+test('「全选」按钮在浏览态 / 多选态下承担不同功能且文案随之变化', () => {
+  const source = readDuplicatePageSource()
+
+  assert.ok(!source.includes('全选本页'), '按钮文案不应再是「全选本页」')
+  // 浏览态：点击进入多选。
+  assert.ok(/onClick=\{\(\) => setSelectionMode\(true\)\}/.test(source), '浏览态点击应进入多选')
+  // 多选态：全选 / 取消全选，文案跟着走。
+  assert.ok(source.includes("allSelected ? zh('取消全选'"), '已全选时文案应变为「取消全选」')
+  assert.ok(source.includes("zh('全选', 'All')"), '未全选时文案应为「全选」')
+})
+
+test('查重页只从 @/api 引入查重接口，不碰任何文件删除能力', () => {
+  const source = readDuplicatePageSource()
 
   // 白名单而不是黑名单：一旦引入删除 / 重命名类接口，这里立刻失败。
   const imports = Array.from(source.matchAll(/import\s*\{([^}]*)\}\s*from\s*'@\/api'/g))

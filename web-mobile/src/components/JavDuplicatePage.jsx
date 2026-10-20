@@ -40,6 +40,9 @@ export function JavDuplicatePage({ onClose }) {
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState(() => new Set())
+  // 默认是普通浏览态：点封面播放、点标题进详情。多选必须显式进入 ——
+  // 「全选」按钮或长按卡片，进入后卡片才切换成勾选态。
+  const [selectionMode, setSelectionMode] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const sentinelRef = useRef(null)
@@ -111,13 +114,33 @@ export function JavDuplicatePage({ onClose }) {
     })
   }
 
+  /** 长按卡片进入多选，并顺手选中被长按的这项（与 JAV 作品列表的多选入口一致）。 */
+  const enterSelection = (item) => {
+    setSelectionMode(true)
+    const id = Number(item?.id)
+    if (!Number.isFinite(id) || id <= 0) return
+    setSelected((current) => (current.has(id) ? current : new Set(current).add(id)))
+  }
+
+  const exitSelection = () => {
+    setSelectionMode(false)
+    setSelected(new Set())
+  }
+
   const runSearch = () => {
     setSelected(new Set())
     setSearch(searchInput.trim())
   }
 
-  const toggleSelectPage = () => {
-    setSelected(allSelected ? new Set() : new Set(pageIds))
+  /**
+   * 「全选」按钮在多选态下才做全选/取消全选。
+   * 用函数式更新读最新集合，避免闭包里的 `selected` 过期。
+   */
+  const toggleSelectAll = () => {
+    setSelected((current) => {
+      const all = pageIds.length > 0 && pageIds.every((id) => current.has(id))
+      return all ? new Set() : new Set(pageIds)
+    })
   }
 
   const addToWhitelist = async () => {
@@ -133,7 +156,9 @@ export function JavDuplicatePage({ onClose }) {
           `Added ${ids.length} work(s) to the whitelist`
         )
       )
+      // 加完就回到普通浏览态：列表刷新后已加入的作品不再出现，留在多选态没有意义。
       setSelected(new Set())
+      setSelectionMode(false)
       await load(0)
     } catch (err) {
       setError(getErrorMessage(err))
@@ -163,26 +188,45 @@ export function JavDuplicatePage({ onClose }) {
         </button>
       }
       footer={
-        <>
+        selectionMode ? (
+          <>
+            <button
+              type="button"
+              onClick={exitSelection}
+              className={buttonClass('secondary', 'h-11 w-16 flex-none')}
+            >
+              {zh('取消', 'Cancel')}
+            </button>
+            {/* 同一个按钮分饰两角：本页没全选则全选，已全选则取消全选，文案跟着变。 */}
+            <button
+              type="button"
+              disabled={pageIds.length === 0 || saving}
+              onClick={toggleSelectAll}
+              className={buttonClass('secondary', 'h-11 w-24 flex-none')}
+            >
+              {allSelected ? zh('取消全选', 'None') : zh('全选', 'All')}
+            </button>
+            <button
+              type="button"
+              disabled={selected.size === 0 || saving}
+              onClick={addToWhitelist}
+              className={buttonClass('primary', 'h-11 flex-1')}
+            >
+              {saving
+                ? zh('加入中…', 'Adding…')
+                : zh(`加入白名单（${selected.size}）`, `Add to whitelist (${selected.size})`)}
+            </button>
+          </>
+        ) : (
           <button
             type="button"
-            disabled={pageIds.length === 0 || saving}
-            onClick={toggleSelectPage}
-            className={buttonClass('secondary', 'h-11 w-24 flex-none')}
+            disabled={items.length === 0 || loading}
+            onClick={() => setSelectionMode(true)}
+            className={buttonClass('secondary', 'h-11 flex-1')}
           >
-            {allSelected ? zh('取消全选', 'None') : zh('全选本页', 'Select page')}
+            {zh('全选', 'Select all')}
           </button>
-          <button
-            type="button"
-            disabled={selected.size === 0 || saving}
-            onClick={addToWhitelist}
-            className={buttonClass('primary', 'h-11 flex-1')}
-          >
-            {saving
-              ? zh('加入中…', 'Adding…')
-              : zh(`加入查重白名单（${selected.size}）`, `Add to whitelist (${selected.size})`)}
-          </button>
-        </>
+        )
       }
     >
       <div className="sticky top-0 z-10 border-b border-[#e6e8ec] bg-white px-3 py-2">
@@ -220,7 +264,9 @@ export function JavDuplicatePage({ onClose }) {
         </form>
         <div className="mt-2 flex items-center justify-between text-[11.5px] text-zinc-400">
           <span>{zh(`共 ${formatCount(total)} 项`, `${formatCount(total)} item(s)`)}</span>
-          <span>{zh(`已选 ${selected.size}`, `Selected ${selected.size}`)}</span>
+          {selectionMode ? (
+            <span>{zh(`已选 ${selected.size}`, `Selected ${selected.size}`)}</span>
+          ) : null}
         </div>
       </div>
 
@@ -259,11 +305,14 @@ export function JavDuplicatePage({ onClose }) {
             }}
           >
             {items.map((item) => (
+              // 与 JAV 作品列表一致：普通态点封面播放、点标题进详情；进入多选后整卡只做勾选。
               <JavWorkCard
                 key={item.id}
                 item={item}
                 density={javDensity}
-                selectionMode
+                onOpen={(value) => pushPage('jav-detail', value)}
+                onLongPress={enterSelection}
+                selectionMode={selectionMode}
                 selected={selected.has(Number(item.id))}
                 onToggle={toggle}
               />
