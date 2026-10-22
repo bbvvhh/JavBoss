@@ -76,11 +76,15 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
   // 稍后观看：按钮高亮与否以服务端为准，打开视频时读一次。
   const [inWatchLater, setInWatchLater] = useState(false)
   const [watchLaterBusy, setWatchLaterBusy] = useState(false)
-  // 其它模式从「同文件夹视频」进来时会带一份播放列表；普通视频模式列表为空，入口不显示。
+  // 其它模式从「同文件夹视频」进来、JAV 模式从作品的多文件列表进来时会带一份播放列表；
+  // 只有一个视频时入口没有意义，直接不显示。
   const playerState = useStore((state) => state.player)
   const playlist = playerState?.list || EMPTY_PLAYLIST
   const playlistIndex = playlist.findIndex((item) => Number(item?.id) === Number(video?.id))
-  const hasPlaylist = playlistIndex >= 0
+  const hasPlaylist = playlist.length > 1 && playlistIndex >= 0
+  const playlistTitle = playerState?.jav
+    ? zh('同番号视频', 'Videos with the same code')
+    : zh('同文件夹视频', 'Videos in this folder')
   const nextPlaylistVideo =
     hasPlaylist && playlistIndex < playlist.length - 1 ? playlist[playlistIndex + 1] : null
   const [playlistSheetOpen, setPlaylistSheetOpen] = useState(false)
@@ -675,11 +679,11 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
     </BottomSheet>
   )
 
-  // 同文件夹视频抽屉：封面 + 文件名，点击立即切换；顶部是自动连播开关。
+  // 播放列表抽屉：封面 + 文件名，点击立即切换；顶部是自动连播开关。
   const playlistSheet = hasPlaylist ? (
     <BottomSheet
       open={playlistSheetOpen}
-      title={zh('同文件夹视频', 'Videos in this folder')}
+      title={playlistTitle}
       height="78vh"
       onClose={() => setPlaylistSheetOpen(false)}
     >
@@ -766,7 +770,7 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
           <button
             type="button"
             onClick={() => setPlaylistSheetOpen(true)}
-            aria-label={zh('同文件夹视频', 'Videos in this folder')}
+            aria-label={playlistTitle}
             className="flex h-9 flex-none items-center gap-1 rounded-[10px] px-2 text-[12px] active:bg-white/10 text-brand-ink"
           >
             <Icon name="list" size={18} />
