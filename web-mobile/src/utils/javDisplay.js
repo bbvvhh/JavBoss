@@ -58,9 +58,12 @@ export function javPageSize(config, tab) {
   return Math.max(1, Math.min(500, value))
 }
 
-/** 初次进入时的模式：由服务端 `initial_view_mode` 决定。 */
+/** 初次进入时的模式：由服务端 `initial_view_mode` 决定（video / jav / other）。 */
 export function initialViewMode(config) {
-  return configString(config, 'initial_view_mode', 'video') === 'jav' ? 'jav' : 'video'
+  const value = configString(config, 'initial_view_mode', 'video')
+  if (value === 'jav') return 'jav'
+  if (value === 'other') return 'other'
+  return 'video'
 }
 
 /** 服务端配置里的 JAV / 女优默认排序，非法值交给各自的 normalize 兜底。 */

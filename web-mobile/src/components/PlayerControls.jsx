@@ -55,6 +55,8 @@ export default function PlayerControls({
   capturing = false,
   onOpenSubtitles,
   subtitleActive = false,
+  onOpenPlaylist,
+  playlistActive = false,
 }) {
   const trackRef = useRef(null)
   const dragRef = useRef(null)
@@ -376,8 +378,19 @@ export default function PlayerControls({
           <Icon name={muted ? 'volumeMute' : 'volume'} size={18} />
         </button>
 
-        {/* 全屏时播放器上方的页面头部（含字幕入口）会被浏览器隐藏，这里补一个
-            字幕入口，进入「在线字幕」抽屉即可选择 / 下载 / 关闭字幕。 */}
+        {/* 全屏时播放器上方的页面头部（含播放列表 / 字幕入口）会被浏览器隐藏，
+            这里补上入口：播放列表可切换同文件夹视频，字幕可选择 / 下载 / 关闭。 */}
+        {overlay && onOpenPlaylist ? (
+          <button
+            type="button"
+            onClick={onOpenPlaylist}
+            aria-label={zh('同文件夹视频', 'Videos in this folder')}
+            aria-pressed={Boolean(playlistActive)}
+            className={`${BUTTON_CLASS} ${playlistActive ? 'text-brand-ink' : ''}`}
+          >
+            <Icon name="list" size={18} />
+          </button>
+        ) : null}
         {overlay && onOpenSubtitles ? (
           <button
             type="button"

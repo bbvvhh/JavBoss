@@ -241,6 +241,7 @@ export default function GlobalSettingsPage({ onClose }) {
               options={[
                 { value: 'video', label: zh('视频模式', 'Video') },
                 { value: 'jav', label: zh('JAV 模式', 'JAV') },
+                { value: 'other', label: zh('其它模式', 'Other') },
               ]}
             />
           }

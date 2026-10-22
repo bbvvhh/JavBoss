@@ -16,6 +16,7 @@ import JavListPage from '@/components/JavListPage'
 import JavQuickChips from '@/components/JavQuickChips'
 import { JavBatchFavoriteSheet, JavBatchTagSheet } from '@/components/JavSelectionSheets'
 import JavTagSheet from '@/components/JavTagSheet'
+import OtherBrowserPage from '@/components/OtherBrowserPage'
 import PlaybackHistoryPage from '@/components/PlaybackHistoryPage'
 import PlayerPage from '@/components/PlayerPage'
 import QuickChips from '@/components/QuickChips'
@@ -90,6 +91,15 @@ export default function App() {
     Promise.all([useStore.getState().loadConfig(), useStore.getState().loadTags()]).then(() => {
       if (cancelled) return
       applyUrlState(useStore, parseUrlState(window.location.search))
+      // 地址栏带了 dir/path 就直接把对应层级压进页面栈，刷新后停在同一个文件夹，
+      // 而不是退回目录列表（返回键再一层层上钻）。
+      const parsedOther = useStore.getState()
+      if (parsedOther.view === 'other' && parsedOther.otherDirectoryId) {
+        useStore.getState().pushPage('other-folder', {
+          directoryId: parsedOther.otherDirectoryId,
+          path: parsedOther.otherPath || '',
+        })
+      }
       setReady(true)
     })
     return () => {
@@ -184,9 +194,9 @@ export default function App() {
             // 女优页的排序 / 资料筛选与作品页完全无关，走独立控件。
             <JavIdolQuickChips onOpenIdolSheet={() => setJavIdolFilterOpen(true)} />
           ) : null
-        ) : (
+        ) : view === 'video' ? (
           <QuickChips onOpenFilter={() => setFilterOpen(true)} />
-        )
+        ) : null
       ) : null}
 
       {view === 'video' ? (
@@ -246,8 +256,10 @@ export default function App() {
             )}
           </main>
         </>
-      ) : (
+      ) : view === 'jav' ? (
         <JavListPage chipsVisible={javChipsVisible} />
+      ) : (
+        <OtherBrowserPage />
       )}
 
       {selectionMode && view === 'video' ? (
@@ -379,6 +391,14 @@ export default function App() {
       ) : null}
       {topPage?.type === 'playback-history' ? (
         <PlaybackHistoryPage onClose={() => useStore.getState().popPage()} />
+      ) : null}
+      {topPage?.type === 'other-folder' ? (
+        <OtherBrowserPage
+          key={`${topPage.payload?.directoryId || ''}:${topPage.payload?.path || ''}`}
+          directoryId={topPage.payload?.directoryId || null}
+          path={topPage.payload?.path || ''}
+          onClose={() => useStore.getState().popPage()}
+        />
       ) : null}
 
       {topPage && isSettingsPage(topPage.type) ? (

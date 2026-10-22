@@ -50,6 +50,10 @@ export default function ActionSheet() {
   const label = getVideoDisplayName(video)
   const jav = video?.jav || video?.locations?.[0]?.jav || null
   const code = String(jav?.code || '').trim()
+  // 其它模式不做 JAV 刮削 / 关联：既不显示刮削状态，也不给刮削入口，
+  // 顺带禁掉多选（其它模式的列表没有多选工具条）。播放列表改为调用方传入的那份。
+  const hideScrape = Boolean(options?.hideScrape)
+  const hideSelection = Boolean(options?.hideSelection)
 
   const go = (type, payload) => {
     close()
@@ -72,9 +76,11 @@ export default function ActionSheet() {
         <div className="flex items-start gap-2 border-b border-[#e6e8ec] px-4 py-3">
           <div className="min-w-0 flex-1">
             <b className="block truncate text-[13px]">{label}</b>
-            <span className="mt-0.5 block text-[11px] text-zinc-400">
-              {code ? zh(`已刮削 ${code}`, `Scraped ${code}`) : zh('未刮削', 'Unscraped')}
-            </span>
+            {!hideScrape ? (
+              <span className="mt-0.5 block text-[11px] text-zinc-400">
+                {code ? zh(`已刮削 ${code}`, `Scraped ${code}`) : zh('未刮削', 'Unscraped')}
+              </span>
+            ) : null}
           </div>
           <button
             type="button"
@@ -92,7 +98,7 @@ export default function ActionSheet() {
             label={zh('播放', 'Play')}
             onClick={() => {
               close()
-              openPlayer(video, videos)
+              openPlayer(video, options?.playList || videos)
             }}
           />
           <Row
@@ -101,27 +107,33 @@ export default function ActionSheet() {
             onClick={() => go('screenshots', video)}
           />
           <Row icon="tag" label={zh('编辑标签', 'Edit tags')} onClick={() => go('tags', video)} />
-          <Row
-            icon="check"
-            label={zh('多选', 'Select')}
-            onClick={() => {
-              close()
-              enterSelection(video)
-            }}
-          />
+          {!hideSelection ? (
+            <Row
+              icon="check"
+              label={zh('多选', 'Select')}
+              onClick={() => {
+                close()
+                enterSelection(video)
+              }}
+            />
+          ) : null}
 
           <div className="mx-3 my-1.5 border-t border-[#f1f2f5]" />
 
-          <Row
-            icon="wand"
-            label={zh('刮削设置', 'Scrape settings')}
-            onClick={() => go('scrape', video)}
-          />
-          <Row
-            icon="download"
-            label={zh('在线刮削', 'Scrape now')}
-            onClick={() => go('scrape-online', video)}
-          />
+          {!hideScrape ? (
+            <>
+              <Row
+                icon="wand"
+                label={zh('刮削设置', 'Scrape settings')}
+                onClick={() => go('scrape', video)}
+              />
+              <Row
+                icon="download"
+                label={zh('在线刮削', 'Scrape now')}
+                onClick={() => go('scrape-online', video)}
+              />
+            </>
+          ) : null}
           <Row
             icon="rename"
             label={zh('重命名文件', 'Rename file')}

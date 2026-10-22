@@ -35,6 +35,12 @@ const WORK_STATUS_LABELS = {
   organizing_with_sidecar: zh('整理并生成附属文件', 'Organizing + sidecars'),
 }
 
+/** 目录模式：视频模式进视频库（会刮削 / 关联），其它模式只做分层浏览。 */
+const MODE_CHOICES = [
+  { value: 'video', label: zh('视频模式', 'Video') },
+  { value: 'other', label: zh('其它模式', 'Other') },
+]
+
 function formatElapsed(ms) {
   const total = Math.max(0, Math.floor(Number(ms) / 1000))
   const h = String(Math.floor(total / 3600)).padStart(2, '0')
@@ -82,6 +88,7 @@ export default function DirectoryManagerPage({ onClose }) {
   const [target, setTarget] = useState(null)
   const [addOpen, setAddOpen] = useState(false)
   const [addKind, setAddKind] = useState('local')
+  const [addMode, setAddMode] = useState('video')
   const [addConnection, setAddConnection] = useState(null)
   const [picker, setPicker] = useState(null)
   const [removeTarget, setRemoveTarget] = useState(null)
@@ -152,8 +159,9 @@ export default function DirectoryManagerPage({ onClose }) {
               kind: 'webdav',
               connectionId: Number(addConnection),
               remotePath: path,
+              mode: addMode,
             })
-          : createDirectory({ path }),
+          : createDirectory({ path, mode: addMode }),
       zh('目录已添加，正在开始首次扫描', 'Directory added; first scan starting')
     )
     if (ok) {
@@ -161,6 +169,7 @@ export default function DirectoryManagerPage({ onClose }) {
       setAddOpen(false)
       setAddConnection(null)
       setAddKind('local')
+      setAddMode('video')
     }
   }
 
@@ -233,6 +242,11 @@ export default function DirectoryManagerPage({ onClose }) {
                       {displayPath(directory)}
                     </span>
                   </span>
+                  {directory.mode === 'other' ? (
+                    <span className="flex-none rounded bg-brand-soft px-1.5 py-[1px] text-[10px] text-brand-ink">
+                      {zh('其它模式', 'Other')}
+                    </span>
+                  ) : null}
                   {!directory.enabled ? (
                     <span className="flex-none rounded bg-zinc-100 px-1.5 py-[1px] text-[10px] text-zinc-500">
                       {zh('已停用', 'Disabled')}
@@ -256,14 +270,19 @@ export default function DirectoryManagerPage({ onClose }) {
                       : ''}
                   </span>
                   <span className="tabular-nums">
-                    {zh(
-                      `${directory.scanned_video_count || 0} 部视频 · 已刮削 ${
-                        directory.scraped_video_count || 0
-                      }`,
-                      `${directory.scanned_video_count || 0} videos · ${
-                        directory.scraped_video_count || 0
-                      } scraped`
-                    )}
+                    {directory.mode === 'other'
+                      ? zh(
+                          `${directory.scanned_video_count || 0} 部视频`,
+                          `${directory.scanned_video_count || 0} videos`
+                        )
+                      : zh(
+                          `${directory.scanned_video_count || 0} 部视频 · 已刮削 ${
+                            directory.scraped_video_count || 0
+                          }`,
+                          `${directory.scanned_video_count || 0} videos · ${
+                            directory.scraped_video_count || 0
+                          } scraped`
+                        )}
                   </span>
                   <span className="tabular-nums">
                     {formatFinishedAt(summary.finished_at_unix_ms)}
@@ -309,6 +328,36 @@ export default function DirectoryManagerPage({ onClose }) {
                 {actionError}
               </p>
             ) : null}
+
+            <div className="mt-2 rounded-[10px] bg-[#f7f8fa] px-3 py-3">
+              <p className="mb-2 text-[12.5px] font-medium text-zinc-600">
+                {zh('目录模式', 'Directory mode')}
+              </p>
+              <ModeSwitch
+                value={current.mode === 'other' ? 'other' : 'video'}
+                disabled={busy}
+                onChange={(value) =>
+                  patch(
+                    current,
+                    { mode: value },
+                    value === 'other'
+                      ? zh('已设为其它模式', 'Set to Other mode')
+                      : zh('已设为视频模式', 'Set to Video mode')
+                  )
+                }
+              />
+              <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-400">
+                {current.mode === 'other'
+                  ? zh(
+                      '「其它模式」目录只做分层浏览，不参与 JAV 刮削与关联。',
+                      'Other-mode directories are browsed hierarchically; they are never scraped or linked.'
+                    )
+                  : zh(
+                      '「视频模式」目录会进入视频库，并参与 JAV 刮削与关联。',
+                      'Video-mode directories join the library and can be scraped and linked.'
+                    )}
+              </p>
+            </div>
 
             <SheetToggle
               label={zh('启用这个目录', 'Enable this directory')}
@@ -489,6 +538,24 @@ export default function DirectoryManagerPage({ onClose }) {
             </p>
           )}
 
+          <div>
+            <p className="mb-2 text-[12.5px] font-medium text-zinc-600">
+              {zh('目录模式', 'Directory mode')}
+            </p>
+            <ModeSwitch value={addMode} onChange={setAddMode} />
+            <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-400">
+              {addMode === 'other'
+                ? zh(
+                    '「其它模式」目录只做分层浏览，不参与 JAV 刮削与关联。',
+                    'Other-mode directories are browsed hierarchically; they are never scraped or linked.'
+                  )
+                : zh(
+                    '「视频模式」目录会进入视频库，并参与 JAV 刮削与关联。',
+                    'Video-mode directories join the library and can be scraped and linked.'
+                  )}
+            </p>
+          </div>
+
           <button
             type="button"
             disabled={addKind === 'webdav' && !addConnection}
@@ -564,6 +631,29 @@ function SheetToggle({ label, hint, checked, onChange, disabled }) {
         {hint ? <p className="mt-1 text-[11.5px] leading-relaxed text-zinc-400">{hint}</p> : null}
       </div>
       <Switch checked={checked} onChange={onChange} disabled={disabled} label={label} />
+    </div>
+  )
+}
+
+/** 目录模式选择：视频模式 / 其它模式，样式与「本地 / WebDAV」来源切换一致。 */
+function ModeSwitch({ value, onChange, disabled = false }) {
+  return (
+    <div className="flex gap-1 rounded-[10px] bg-zinc-100 p-1">
+      {MODE_CHOICES.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          disabled={disabled}
+          onClick={() => onChange(option.value)}
+          className={`min-w-0 flex-1 truncate rounded-[8px] px-2 py-1.5 text-[12.5px] ${
+            option.value === value
+              ? 'bg-white font-semibold text-brand-ink shadow-sm'
+              : 'text-zinc-600'
+          }`}
+        >
+          {option.label}
+        </button>
+      ))}
     </div>
   )
 }

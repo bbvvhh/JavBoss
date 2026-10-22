@@ -35,7 +35,7 @@ export default function TopBar({ onOpenSearch, onOpenSettings, onOpenHistory }) 
           role="tab"
           aria-selected={view === 'video'}
           onClick={() => setView('video')}
-          className={`rounded-full px-[15px] py-1.5 text-[13px] font-semibold transition ${
+          className={`rounded-full px-[11px] py-1.5 text-[13px] font-semibold transition ${
             view === 'video' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500'
           }`}
         >
@@ -46,11 +46,22 @@ export default function TopBar({ onOpenSearch, onOpenSettings, onOpenHistory }) 
           role="tab"
           aria-selected={view === 'jav'}
           onClick={() => setView('jav')}
-          className={`rounded-full px-[15px] py-1.5 text-[13px] font-semibold transition ${
+          className={`rounded-full px-[11px] py-1.5 text-[13px] font-semibold transition ${
             view === 'jav' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500'
           }`}
         >
           JAV
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'other'}
+          onClick={() => setView('other')}
+          className={`rounded-full px-[11px] py-1.5 text-[13px] font-semibold transition ${
+            view === 'other' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500'
+          }`}
+        >
+          {zh('其它', 'Other')}
         </button>
       </div>
 

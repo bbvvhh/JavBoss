@@ -13,6 +13,7 @@ const { JAV_TAB_VALUES, applyUrlState, buildUrlFromState, parseUrlState, urlStat
 const { EMPTY_JAV_FILTERS, useStore } = await import('../src/store.js')
 const { createDefaultIdolProfileFilters, normalizeIdolProfileFilters } =
   await import('../src/constants/jav.js')
+const { initialViewMode } = await import('../src/utils/javDisplay.js')
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
 const readSource = (...parts) => readFileSync(join(srcDir, ...parts), 'utf8')
@@ -302,4 +303,49 @@ test('写回地址用 replaceState，且不动 history.state 与返回键', () =
     app.includes('applyUrlState(useStore, parseUrlState(window.location.search))'),
     '首屏要在拉列表之前按地址栏复原'
   )
+})
+
+test('其它模式：view=other 记下目录与相对路径，中文 / 斜杠往返不丢', () => {
+  const state = baseState({ view: 'other', otherDirectoryId: 12, otherPath: 'A/子目录 B' })
+  const url = buildUrlFromState(state, '/')
+  const query = queryOf(url)
+  assert.equal(query.view, 'other')
+  assert.equal(query.dir, '12')
+  assert.equal(query.path, 'A/子目录 B')
+  assert.equal(query.sort, undefined, '其它模式不借用视频的共用键 sort')
+  assert.equal(query.random, undefined, '其它模式不借用视频的共用键 random')
+  assert.equal(query.hide_jav, undefined)
+
+  const parsed = parseUrlState(url.slice(url.indexOf('?')))
+  assert.equal(parsed.view, 'other')
+  assert.deepEqual(parsed.other, { directoryId: 12, path: 'A/子目录 B' })
+  assert.equal(parsed.video.sort, '', '视频排序不能串到其它模式')
+  assert.equal(parsed.video.random, false)
+  assert.deepEqual(urlStatePatch(parsed), {
+    view: 'other',
+    otherDirectoryId: 12,
+    otherPath: 'A/子目录 B',
+  })
+
+  // 复原后再写一次地址，结果必须与第一次完全相同（否则刷新会来回改写 URL）。
+  assert.equal(buildUrlFromState({ ...baseState(), ...urlStatePatch(parsed) }, '/'), url)
+})
+
+test('其它模式：不带 dir 时只写 view，view 不是 other 时 dir / path 一律忽略', () => {
+  const rootUrl = buildUrlFromState(baseState({ view: 'other' }), '/')
+  assert.deepEqual(queryOf(rootUrl), { view: 'other' })
+
+  const parsed = parseUrlState('?view=video&dir=5&path=A')
+  assert.deepEqual(parsed.other, { directoryId: null, path: '' })
+  assert.equal('otherDirectoryId' in urlStatePatch(parsed), false, 'dir 只属于其它模式')
+
+  assert.equal(parseUrlState('?view=other&dir=0').other.directoryId, null, '非法目录 id 丢弃')
+})
+
+test('initialViewMode：video / jav / other 三态，非法值回落 video', () => {
+  assert.equal(initialViewMode({ initial_view_mode: 'video' }), 'video')
+  assert.equal(initialViewMode({ initial_view_mode: 'jav' }), 'jav')
+  assert.equal(initialViewMode({ initial_view_mode: 'other' }), 'other')
+  assert.equal(initialViewMode({}), 'video')
+  assert.equal(initialViewMode({ initial_view_mode: 'jelly' }), 'video')
 })

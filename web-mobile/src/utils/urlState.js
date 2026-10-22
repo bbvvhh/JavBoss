@@ -154,12 +154,14 @@ function parseIdolRatingFilter(sp) {
 export function parseUrlState(searchString = '') {
   const sp = new URLSearchParams(String(searchString ?? ''))
   const rawView = sp.get('view')
-  const view = rawView === 'jav' || rawView === 'video' ? rawView : null
+  const view = rawView === 'jav' || rawView === 'video' || rawView === 'other' ? rawView : null
   const rawTab = String(sp.get('tab') ?? '').trim()
   // `sort` / `random` 是**共用键名**，但只属于 URL 里那个视图：视频的
   // `play_count_asc` 恰好也是合法的 JAV 排序值，两边都读会让切到 JAV 后排序串味
-  // （随机标记同理会把视频的随机带到作品页）。
+  // （随机标记同理会把视频的随机带到作品页）。其它模式不写这些键，同样不能借用。
   const isJav = view === 'jav'
+  const isOther = view === 'other'
+  const sortNeutral = isJav || isOther
   const rawSort = parseText(sp.get('sort'))
   const random = sp.get('random') === '1'
 
@@ -168,9 +170,9 @@ export function parseUrlState(searchString = '') {
     search: parseText(sp.get('search')),
     video: {
       tags: toTagNames(sp.getAll('tags')),
-      sort: isJav ? '' : normalizeVideoSort(rawSort, ''),
+      sort: sortNeutral ? '' : normalizeVideoSort(rawSort, ''),
       hideJav: parseFlag(sp.get('hide_jav')),
-      random: isJav ? false : random,
+      random: sortNeutral ? false : random,
     },
     jav: {
       tab: JAV_TAB_VALUES.includes(rawTab) ? rawTab : null,
@@ -180,6 +182,12 @@ export function parseUrlState(searchString = '') {
       filters: parseJavFilters(sp),
       idolProfileFilters: parseIdolProfileFilters(sp),
       idolRatingFilter: parseIdolRatingFilter(sp),
+    },
+    // 其它模式：`dir` = 目录 id，`path` = 相对路径前缀（URLSearchParams 已做解码，
+    // 等价于 decodeURIComponent；写出时由 URLSearchParams 自动 encodeURIComponent）。
+    other: {
+      directoryId: isOther ? parsePositiveInt(sp.get('dir')) : null,
+      path: isOther ? parseText(sp.get('path')) : '',
     },
   }
 }
@@ -236,7 +244,7 @@ function appendIdolRatingFilter(sp, filter) {
  */
 export function buildUrlFromState(state, basePath = '') {
   const sp = new URLSearchParams()
-  const view = state?.view === 'jav' ? 'jav' : 'video'
+  const view = state?.view === 'jav' ? 'jav' : state?.view === 'other' ? 'other' : 'video'
   sp.set('view', view)
 
   const search = parseText(state?.searchTerm)
@@ -256,6 +264,14 @@ export function buildUrlFromState(state, basePath = '') {
       if (state?.idolSort) sp.set('idol_sort', normalizeIdolSort(state.idolSort, ''))
       appendIdolProfileFilters(sp, state?.idolProfileFilters)
       appendIdolRatingFilter(sp, state?.idolRatingFilter)
+    }
+  } else if (view === 'other') {
+    // 其它模式只记「哪个目录 + 哪个相对路径」；写出时 URLSearchParams 会
+    // 自动对 path 做 encodeURIComponent（含中文 / 空格的分段名也能安全往返）。
+    if (state?.otherDirectoryId) {
+      sp.set('dir', String(state.otherDirectoryId))
+      const otherPath = parseText(state?.otherPath)
+      if (otherPath) sp.set('path', otherPath)
     }
   } else {
     for (const tag of toTagNames(state?.selectedTags)) sp.append('tags', tag)
@@ -281,6 +297,7 @@ export function urlStatePatch(parsed) {
   const patch = {}
   const video = parsed?.video || {}
   const jav = parsed?.jav || {}
+  const other = parsed?.other || {}
 
   if (parsed?.view) patch.view = parsed.view
   if (parsed?.search) {
@@ -306,6 +323,11 @@ export function urlStatePatch(parsed) {
   }
   if (jav.idolRatingFilter) {
     patch.idolRatingFilter = normalizeIdolRatingFilter(jav.idolRatingFilter)
+  }
+
+  if (other.directoryId) {
+    patch.otherDirectoryId = other.directoryId
+    patch.otherPath = other.path || ''
   }
 
   return patch

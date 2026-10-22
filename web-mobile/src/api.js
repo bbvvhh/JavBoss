@@ -120,6 +120,75 @@ export async function fetchTags() {
   return requestJSON('GET', `/tags`)
 }
 
+/* ---------------- 其它模式（按目录 + 路径前缀分层浏览，只读） ---------------- */
+
+/** 顶层：其它模式目录列表（`{ items: [Directory] }`）。 */
+export async function fetchOtherDirectories() {
+  const data = await requestJSON('GET', `/other/directories`)
+  return Array.isArray(data?.items) ? data.items : []
+}
+
+/**
+ * 某个其它模式目录 / 文件夹下的内容。
+ *
+ * `path` 为空 = 目录顶层；`folders[].path` 是可直接回环下钻的相对路径。
+ * 带 `search` / `tags` 时后端会把 `folders` 返回为 `[]`（刻意设计），前端不再补文件夹。
+ */
+export async function fetchOtherContents({
+  directoryId,
+  path = '',
+  limit = 25,
+  offset = 0,
+  tags = [],
+  search = '',
+  sort = '',
+  seed = null,
+} = {}) {
+  const params = new URLSearchParams()
+  params.set('directory_id', String(directoryId))
+  params.set('limit', String(limit))
+  params.set('offset', String(offset))
+  if (path) params.set('path', path)
+  if (tags.length) params.set('tags', tags.join(','))
+  if (search) params.set('search', search)
+  if (sort) params.set('sort', sort)
+  if (seed != null) params.set('seed', String(seed))
+  return requestJSON('GET', `/other/list?${params.toString()}`)
+}
+
+/**
+ * 其它模式的文件名搜索（模糊匹配，递归到子文件夹）。
+ *
+ * 不传 `directoryId` 时搜索所有其它模式目录，对应顶层的全局搜索框。
+ */
+export async function fetchOtherSearch({
+  search,
+  directoryId = null,
+  path = '',
+  limit = 25,
+  offset = 0,
+  sort = '',
+  seed = null,
+} = {}) {
+  const params = new URLSearchParams()
+  params.set('search', search || '')
+  if (directoryId != null && directoryId !== '') params.set('directory_id', String(directoryId))
+  if (path) params.set('path', path)
+  params.set('limit', String(limit))
+  params.set('offset', String(offset))
+  if (sort) params.set('sort', sort)
+  if (seed != null) params.set('seed', String(seed))
+  return requestJSON('GET', `/other/search?${params.toString()}`)
+}
+
+/** 其它模式范围内的标签候选（供标签筛选 UI 用）。 */
+export async function fetchOtherTags(directoryId) {
+  const params = new URLSearchParams()
+  params.set('directory_id', String(directoryId))
+  const data = await requestJSON('GET', `/other/tags?${params.toString()}`)
+  return Array.isArray(data) ? data : (data?.items ?? [])
+}
+
 /* ---------------- 播放 ---------------- */
 
 export async function fetchPlaybackInfo(id, { locationId } = {}) {
@@ -837,9 +906,15 @@ export async function fetchDirectories() {
   return Array.isArray(data) ? data : []
 }
 
-export async function createDirectory({ path, kind = 'local', connectionId, remotePath } = {}) {
+export async function createDirectory({
+  path,
+  kind = 'local',
+  connectionId,
+  remotePath,
+  mode,
+} = {}) {
   return requestJSON('POST', `/directories`, {
-    body: { path, kind, connection_id: connectionId, remote_path: remotePath },
+    body: { path, kind, connection_id: connectionId, remote_path: remotePath, mode },
   })
 }
 

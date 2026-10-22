@@ -19,6 +19,7 @@ import {
 import BottomSheet from '@/components/BottomSheet'
 import Icon from '@/components/Icons'
 import PlayerControls from '@/components/PlayerControls'
+import Switch from '@/components/form/Switch'
 import SubtitleSheet from '@/components/SubtitleSheet'
 import VideoPreviewGrid from '@/components/VideoPreviewGrid'
 import usePlayerGesture from '@/hooks/usePlayerGesture'
@@ -41,6 +42,8 @@ import { getErrorMessage } from '@/utils/errors'
 import { zh } from '@/utils/i18n'
 
 const SAVE_INTERVAL_MS = 5000
+const AUTOPLAY_NEXT_STORAGE_KEY = 'javboss.player.autoplay-next'
+const EMPTY_PLAYLIST = []
 
 export default function PlayerPage({ video, startTime = 0, jav: providedJav = null, onClose }) {
   const stageRef = useRef(null)
@@ -73,6 +76,36 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
   // 稍后观看：按钮高亮与否以服务端为准，打开视频时读一次。
   const [inWatchLater, setInWatchLater] = useState(false)
   const [watchLaterBusy, setWatchLaterBusy] = useState(false)
+  // 其它模式从「同文件夹视频」进来时会带一份播放列表；普通视频模式列表为空，入口不显示。
+  const playerState = useStore((state) => state.player)
+  const playlist = playerState?.list || EMPTY_PLAYLIST
+  const playlistIndex = playlist.findIndex((item) => Number(item?.id) === Number(video?.id))
+  const hasPlaylist = playlistIndex >= 0
+  const nextPlaylistVideo =
+    hasPlaylist && playlistIndex < playlist.length - 1 ? playlist[playlistIndex + 1] : null
+  const [playlistSheetOpen, setPlaylistSheetOpen] = useState(false)
+  // 自动连播默认开启，用户手动关掉后记住选择（与桌面端共用同一个键）。
+  const [autoPlayNext, setAutoPlayNext] = useState(() => {
+    try {
+      return localStorage.getItem(AUTOPLAY_NEXT_STORAGE_KEY) !== '0'
+    } catch {
+      return true
+    }
+  })
+  const playNextRef = useRef(null)
+  useEffect(() => {
+    playNextRef.current = () => {
+      if (!autoPlayNext || !nextPlaylistVideo) return
+      useStore.getState().openPlayer(nextPlaylistVideo, playlist)
+    }
+  }, [autoPlayNext, nextPlaylistVideo, playlist])
+  useEffect(() => {
+    try {
+      localStorage.setItem(AUTOPLAY_NEXT_STORAGE_KEY, autoPlayNext ? '1' : '0')
+    } catch {
+      /* 忽略隐私模式下的写入失败 */
+    }
+  }, [autoPlayNext])
 
   // 默认搜索关键词永远是 jav 表的 code（番号），本地文件名只用于
   // 「哪份字幕更合适」的匹配。优先用服务端解析出的 jav_code。
@@ -506,6 +539,8 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
       clearProgress(video.id)
       clearVideoPlayback(video.id).catch(() => {})
       setResumeNotice(false)
+      // 自动连播：播放完当前视频后接着播同文件夹的下一个。
+      playNextRef.current?.()
     }
 
     player.on('timeupdate', onTimeUpdate)
@@ -614,6 +649,8 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
       capturing={capturing}
       onOpenSubtitles={() => setSubtitleSheetOpen(true)}
       subtitleActive={activeSubtitleId != null}
+      onOpenPlaylist={hasPlaylist ? () => setPlaylistSheetOpen(true) : null}
+      playlistActive={playlistSheetOpen}
     />
   )
 
@@ -637,6 +674,65 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
       />
     </BottomSheet>
   )
+
+  // 同文件夹视频抽屉：封面 + 文件名，点击立即切换；顶部是自动连播开关。
+  const playlistSheet = hasPlaylist ? (
+    <BottomSheet
+      open={playlistSheetOpen}
+      title={zh('同文件夹视频', 'Videos in this folder')}
+      height="78vh"
+      onClose={() => setPlaylistSheetOpen(false)}
+    >
+      <div className="flex items-center justify-between border-b border-[#eff1f4] px-3.5 py-3">
+        <span className="text-[12.5px] text-zinc-600">
+          {zh('自动播放下个文件', 'Autoplay next file')}
+        </span>
+        <Switch
+          checked={autoPlayNext}
+          onChange={setAutoPlayNext}
+          label={zh('自动播放下个文件', 'Autoplay next file')}
+        />
+      </div>
+      <div className="pb-6">
+        {playlist.map((item) => {
+          const active = Number(item?.id) === Number(video?.id)
+          return (
+            <button
+              key={`${item.location_id || item.id}-${item.id}`}
+              type="button"
+              onClick={() => {
+                if (!active) useStore.getState().openPlayer(item, playlist)
+              }}
+              className={`flex w-full items-center gap-2.5 border-b border-[#f1f2f5] px-3.5 py-2.5 text-left ${
+                active ? 'bg-[#eef6ff]' : 'active:bg-zinc-50'
+              }`}
+            >
+              <img
+                src={`/videos/${item.id}/thumbnail`}
+                alt=""
+                loading="lazy"
+                className="h-9 w-16 flex-none rounded bg-zinc-200 object-cover"
+              />
+              <span className="min-w-0 flex-1">
+                <span
+                  className={`block truncate text-[12.5px] ${
+                    active ? 'font-semibold text-brand-ink' : 'text-zinc-800'
+                  }`}
+                >
+                  {getVideoDisplayName(item)}
+                </span>
+                {active ? (
+                  <span className="block text-[10.5px] text-brand-ink">
+                    {zh('正在播放', 'Now playing')}
+                  </span>
+                ) : null}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </BottomSheet>
+  ) : null
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#0b0f16]">
@@ -666,6 +762,17 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
         >
           <Icon name={inWatchLater ? 'bookmarkFilled' : 'bookmark'} size={19} />
         </button>
+        {hasPlaylist ? (
+          <button
+            type="button"
+            onClick={() => setPlaylistSheetOpen(true)}
+            aria-label={zh('同文件夹视频', 'Videos in this folder')}
+            className="flex h-9 flex-none items-center gap-1 rounded-[10px] px-2 text-[12px] active:bg-white/10 text-brand-ink"
+          >
+            <Icon name="list" size={18} />
+            <span>{playlist.length}</span>
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={() => setSubtitleSheetOpen(true)}
@@ -706,6 +813,7 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
               {overlayPills}
               {controls}
               {subtitleSheet}
+              {playlistSheet}
             </>,
             portalTarget
           )
@@ -869,6 +977,7 @@ export default function PlayerPage({ video, startTime = 0, jav: providedJav = nu
 
       {/* 全屏时抽屉已随控制条搬进播放器元素，这里只在非全屏渲染。 */}
       {portalTarget ? null : subtitleSheet}
+      {portalTarget ? null : playlistSheet}
     </div>
   )
 }

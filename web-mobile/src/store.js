@@ -9,6 +9,8 @@ import {
   fetchJavIdol,
   fetchJavFilterOptions,
   fetchJavFavoriteGroups,
+  fetchOtherContents,
+  fetchOtherSearch,
   updateConfig,
 } from '@/api'
 import { normalizeVideoSort } from '@/constants/video'
@@ -22,6 +24,7 @@ import {
   normalizeJavSort,
 } from '@/constants/jav'
 import { initialViewMode } from '@/utils/javDisplay'
+import { getVideoFolderPath } from '@/utils/videoPath'
 import { configFlag } from '@/utils/config'
 import {
   DEFAULT_DENSITY,
@@ -98,6 +101,9 @@ export const EMPTY_JAV_FILTERS = {
 // 每次列表请求递增，用于丢弃过期响应（快速改筛选条件时的竞态）。
 let loadSeq = 0
 
+// 其它模式列表单独一个序号：与视频列表互不干扰，切视图不会把对方的请求判成过期。
+let otherLoadSeq = 0
+
 export const useStore = create((set, get) => ({
   /* ---------------- 视图密度（默认大图 1 列） ---------------- */
   density: readStoredDensity() || DEFAULT_DENSITY,
@@ -111,9 +117,9 @@ export const useStore = create((set, get) => ({
   closeDensitySheet: () => set({ densitySheetOpen: false }),
 
   /* ---------------- 内容视图 ---------------- */
-  view: 'video', // video | jav （jav 在 P1 实现）
+  view: 'video', // video | jav | other
   setView: (view) => {
-    if (view !== 'video' && view !== 'jav') return
+    if (view !== 'video' && view !== 'jav' && view !== 'other') return
     set({ view })
   },
 
@@ -278,6 +284,147 @@ export const useStore = create((set, get) => ({
     }
   },
 
+  /* ---------------- 其它模式（按目录 + 路径前缀分层浏览） ----------------
+   * 顶层展示「其它模式目录」（由 OtherBrowserPage 直接拉取），进入某个目录后
+   * 才把导航落到这里：`otherDirectoryId` + `otherPath`（相对目录的路径前缀，空=顶层）。
+   * 每个其它模式页面在挂载时把自己的 {directoryId, path} 写进来，返回/卸载时复位。 */
+  otherDirectoryId: null,
+  otherPath: '',
+  otherDirectory: null,
+  otherFolders: [],
+  otherItems: [],
+  otherTotal: 0,
+  otherHasNext: false,
+  otherLoading: false,
+  otherLoadingMore: false,
+  otherError: null,
+
+  setOtherNav: (directoryId, path) => {
+    const id = Number(directoryId)
+    set({
+      otherDirectoryId: Number.isFinite(id) && id > 0 ? id : null,
+      otherPath: String(path ?? ''),
+    })
+  },
+  resetOtherNav: () =>
+    set({
+      otherDirectoryId: null,
+      otherPath: '',
+      otherDirectory: null,
+      otherFolders: [],
+      otherItems: [],
+      otherTotal: 0,
+      otherHasNext: false,
+      otherLoading: false,
+      otherLoadingMore: false,
+      otherError: null,
+    }),
+
+  // `search` 可由页面显式传入（其它模式没有筛选栏，搜索只在顶栏那个全局入口；
+  // 传入后地址栏 / 顶栏一变就让页面重拉，不传则读当前 store 里的搜索词）。
+  loadOtherContents: async ({ search } = {}) => {
+    const state = get()
+    const directoryId = state.otherDirectoryId
+    const keyword = (search === undefined ? state.searchTerm : search) || ''
+    // 没有选中目录时只有搜索有意义：后端会递归搜索所有其它模式目录。
+    if (!directoryId && !keyword) {
+      set({ otherFolders: [], otherItems: [], otherTotal: 0, otherHasNext: false })
+      return
+    }
+    const useSearch = Boolean(keyword)
+    const reqId = (otherLoadSeq += 1)
+    set({ otherLoading: true, otherLoadingMore: false, otherError: null })
+    try {
+      // 有关键词时用搜索接口（递归到子文件夹）；否则按目录 + 路径前缀分层浏览。
+      const resp = useSearch
+        ? await fetchOtherSearch({
+            search: keyword,
+            directoryId,
+            path: state.otherPath,
+            limit: state.pageSize,
+            offset: 0,
+            sort: state.randomSeed ? 'random' : state.sort,
+            seed: state.randomSeed || null,
+          })
+        : await fetchOtherContents({
+            directoryId,
+            path: state.otherPath,
+            limit: state.pageSize,
+            offset: 0,
+            tags: state.selectedTags,
+            sort: state.randomSeed ? 'random' : state.sort,
+            seed: state.randomSeed || null,
+          })
+      if (reqId !== otherLoadSeq) return
+      const items = resp.items || []
+      const total = resp.total ?? 0
+      set({
+        otherDirectory: resp.directory || (useSearch ? state.otherDirectory : null),
+        otherFolders: useSearch ? [] : Array.isArray(resp.folders) ? resp.folders : [],
+        otherItems: items,
+        otherTotal: total,
+        otherHasNext: state.randomSeed ? false : items.length < total,
+      })
+    } catch (e) {
+      if (reqId !== otherLoadSeq) return
+      set({
+        otherError: e.message,
+        otherDirectory: useSearch ? state.otherDirectory : null,
+        otherFolders: [],
+        otherItems: [],
+        otherTotal: 0,
+        otherHasNext: false,
+      })
+    } finally {
+      if (reqId === otherLoadSeq) set({ otherLoading: false })
+    }
+  },
+
+  loadMoreOtherContents: async () => {
+    const state = get()
+    const keyword = state.searchTerm || ''
+    if (state.otherLoading || state.otherLoadingMore || !state.otherHasNext || state.randomSeed) {
+      return
+    }
+    if (!state.otherDirectoryId && !keyword) return
+    const offset = state.otherItems.length
+    const reqId = otherLoadSeq
+    set({ otherLoadingMore: true })
+    try {
+      const resp = keyword
+        ? await fetchOtherSearch({
+            search: keyword,
+            directoryId: state.otherDirectoryId,
+            path: state.otherPath,
+            limit: state.pageSize,
+            offset,
+            sort: state.sort,
+          })
+        : await fetchOtherContents({
+            directoryId: state.otherDirectoryId,
+            path: state.otherPath,
+            limit: state.pageSize,
+            offset,
+            tags: state.selectedTags,
+            sort: state.sort,
+          })
+      if (reqId !== otherLoadSeq) return
+      const items = resp.items || []
+      const total = resp.total ?? state.otherTotal
+      const merged = [...state.otherItems, ...items]
+      set({
+        otherItems: merged,
+        otherTotal: total,
+        otherHasNext: merged.length < total && items.length > 0,
+      })
+    } catch (e) {
+      if (reqId !== otherLoadSeq) return
+      set({ otherError: e.message })
+    } finally {
+      if (reqId === otherLoadSeq) set({ otherLoadingMore: false })
+    }
+  },
+
   /* ---------------- 播放器 ---------------- */
   player: null, // { video, list, startTime, jav }
   // startTime：从预览图（截图）跳进来时的起始进度；0 表示续播本机记录的上次进度。
@@ -285,6 +432,40 @@ export const useStore = create((set, get) => ({
   // 播放时，视频对象取自作品的 videos，并不带 video.jav，所以这里显式把它传进来。
   openPlayer: (video, list, startTime = 0, jav = null) =>
     set({ player: { video, list: list || get().videos, startTime, jav } }),
+  // 其它模式：播放页展示同文件夹的视频，并支持自动连播。
+  // 先用列表里已加载的同一层视频立即打开播放页，再异步补齐整个文件夹，
+  // 避免分页只加载了 25 条时自动连播提前中断。
+  openOtherVideo: (video) => {
+    if (!video) return
+    const folder = getVideoFolderPath(video)
+    const state = get()
+    const loaded = (state.otherItems || []).filter((item) => getVideoFolderPath(item) === folder)
+    const initial = loaded.some((item) => Number(item.id) === Number(video.id))
+      ? loaded
+      : [video, ...loaded]
+    state.openPlayer(video, initial)
+
+    const directoryId = Number(video.directory_id) || state.otherDirectoryId
+    if (!directoryId) return
+    fetchOtherContents({
+      directoryId,
+      path: folder,
+      limit: 500,
+      offset: 0,
+      sort: state.randomSeed ? 'random' : state.sort,
+      seed: state.randomSeed || null,
+    })
+      .then((resp) => {
+        const items = resp.items || []
+        if (!items.length) return
+        const current = get().player
+        if (!current || Number(current.video?.id) !== Number(video.id)) return
+        set({ player: { ...current, list: items } })
+      })
+      .catch((e) => {
+        console.warn('加载同文件夹视频失败', e)
+      })
+  },
   closePlayer: () => set({ player: null }),
 
   /* ---------------- 轻提示 ---------------- */
