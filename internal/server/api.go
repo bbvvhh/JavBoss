@@ -96,6 +96,12 @@ func RegisterRoutes(router gin.IRoutes) {
 	router.POST("/directories/:id/scan", scanDirectory)
 	router.PATCH("/directories/:id", updateDirectory)
 
+	// 其它模式：顶层展示其它模式目录，进入后按目录 + 路径前缀分层浏览。
+	router.GET("/other/directories", listOtherDirectories)
+	router.GET("/other/list", listOtherContents)
+	router.GET("/other/search", searchOtherContents)
+	router.GET("/other/tags", listOtherTags)
+
 	router.GET("/storage/connections", listStorageConnections)
 	router.POST("/storage/connections", createStorageConnection)
 	router.PATCH("/storage/connections/:id", updateStorageConnection)

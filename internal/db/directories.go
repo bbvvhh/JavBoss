@@ -88,16 +88,36 @@ func GetDirectory(ctx context.Context, id int64) (*models.Directory, error) {
 //
 // For local directories Path is an absolute filesystem path. For remote
 // directories Path is the collection path below the connection endpoint.
+// Mode selects the media mode ("" or "video" is video mode, "other" is the
+// other mode); it is only applied when creating a directory.
 type DirectorySource struct {
 	Kind         string
 	Path         string
 	ConnectionID *int64
+	Mode         string
+}
+
+// normalizeDirectoryMode validates a raw media mode and returns the canonical
+// value. An empty value means the video mode.
+func normalizeDirectoryMode(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", models.DirectoryModeVideo:
+		return models.DirectoryModeVideo, nil
+	case models.DirectoryModeOther:
+		return models.DirectoryModeOther, nil
+	default:
+		return "", fmt.Errorf("invalid directory mode %q", raw)
+	}
 }
 
 // ResolveDirectorySource validates a source and returns the directory columns to
 // persist. Remote sources must reference an existing storage connection. This
 // function only reads the database; reachability is checked by the caller.
 func ResolveDirectorySource(ctx context.Context, source DirectorySource) (*models.Directory, error) {
+	resolvedMode, err := normalizeDirectoryMode(source.Mode)
+	if err != nil {
+		return nil, err
+	}
 	switch storage.NormalizeKind(source.Kind) {
 	case storage.KindWebDAV:
 		if source.ConnectionID == nil || *source.ConnectionID <= 0 {
@@ -124,6 +144,7 @@ func ResolveDirectorySource(ctx context.Context, source DirectorySource) (*model
 			Kind:         storage.KindWebDAV,
 			ConnectionID: &connectionID,
 			RemotePath:   remotePath,
+			Mode:         resolvedMode,
 		}, nil
 	default:
 		normalized, err := normalizeDirectoryPath(source.Path)
@@ -135,6 +156,7 @@ func ResolveDirectorySource(ctx context.Context, source DirectorySource) (*model
 			Kind:         storage.KindLocal,
 			ConnectionID: nil,
 			RemotePath:   "",
+			Mode:         resolvedMode,
 		}, nil
 	}
 }
@@ -163,6 +185,7 @@ func CreateDirectoryFromSource(ctx context.Context, source DirectorySource) (*mo
 		if existing.IsDelete {
 			return updateDirectoryWithVisibility(ctx, existing.ID, func(tx *gorm.DB, dir *models.Directory) error {
 				applyDirectorySource(dir, resolved)
+				dir.Mode = resolved.Mode
 				dir.IsDelete = false
 				dir.Missing = false
 				dir.Enabled = true
@@ -180,6 +203,9 @@ func CreateDirectoryFromSource(ctx context.Context, source DirectorySource) (*mo
 }
 
 // applyDirectorySource copies resolved storage columns onto a directory row.
+// Mode is intentionally not copied: it is managed separately by
+// UpdateDirectoryMode so that a source-only update cannot reset a directory's
+// media mode back to the default.
 func applyDirectorySource(dir *models.Directory, resolved *models.Directory) {
 	dir.Path = resolved.Path
 	dir.Kind = resolved.Kind
@@ -303,6 +329,27 @@ func UpdateDirectoryScanSettings(
 		if result.Error != nil {
 			return nil, fmt.Errorf("update directory scan settings: %w", result.Error)
 		}
+	}
+	return GetDirectory(ctx, id)
+}
+
+// UpdateDirectoryMode updates only the media mode of a directory. The targeted
+// update is safe to run while a scan is active because it cannot overwrite scan
+// state.
+func UpdateDirectoryMode(ctx context.Context, id int64, mode string) (*models.Directory, error) {
+	if id <= 0 {
+		return nil, errors.New("directory id cannot be zero")
+	}
+	normalized, err := normalizeDirectoryMode(mode)
+	if err != nil {
+		return nil, err
+	}
+	result := common.DB.WithContext(ctx).
+		Model(&models.Directory{}).
+		Where("id = ?", id).
+		Update("mode", normalized)
+	if result.Error != nil {
+		return nil, fmt.Errorf("update directory mode: %w", result.Error)
 	}
 	return GetDirectory(ctx, id)
 }

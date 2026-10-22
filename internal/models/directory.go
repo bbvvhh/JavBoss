@@ -14,6 +14,12 @@ const (
 	DirectoryKindWebDAV = "webdav"
 )
 
+// Media modes persisted on Directory.Mode.
+const (
+	DirectoryModeVideo = "video"
+	DirectoryModeOther = "other"
+)
+
 // DirectoryScanSummary persists the result of the latest successful directory scan.
 type DirectoryScanSummary struct {
 	FilesSeen        int   `json:"files_seen,omitempty"`
@@ -81,6 +87,10 @@ type Directory struct {
 	ConnectionID *int64 `json:"connection_id"`
 	// RemotePath is the collection path below the connection URL (webdav only).
 	RemotePath string `json:"remote_path" gorm:"not null;default:''"`
+	// Mode selects the media mode this directory belongs to: "" or "video" is the
+	// video mode, "other" is the other mode. New columns must stay at the end of
+	// the struct so the migrated column order matches migrations.
+	Mode string `json:"mode" gorm:"not null;default:''"`
 }
 
 // IsRemote reports whether this directory is read over the network.
@@ -97,4 +107,18 @@ func (d Directory) StorageKind() string {
 	default:
 		return DirectoryKindLocal
 	}
+}
+
+// NormalizedMode returns the media mode for this directory. An empty or unknown
+// value means the video mode, which is how pre-existing rows are stored.
+func (d Directory) NormalizedMode() string {
+	if strings.ToLower(strings.TrimSpace(d.Mode)) == DirectoryModeOther {
+		return DirectoryModeOther
+	}
+	return DirectoryModeVideo
+}
+
+// IsOtherMode reports whether this directory belongs to the other mode.
+func (d Directory) IsOtherMode() bool {
+	return d.NormalizedMode() == DirectoryModeOther
 }

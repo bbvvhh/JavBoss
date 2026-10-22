@@ -299,6 +299,69 @@ func applyDirectoryFilter(q *gorm.DB, locationAlias string, directoryIDs []int64
 	return q.Where(locationAlias+".directory_id IN ?", cleanIDs)
 }
 
+// applyDirectoryModeExclusion hides rows whose directory belongs to excludeMode.
+// It is a plain exclusion filter (not an inclusion list) so a completely empty
+// database still behaves correctly. An empty excludeMode disables the filter.
+func applyDirectoryModeExclusion(q *gorm.DB, directoryAlias, excludeMode string) *gorm.DB {
+	excludeMode = strings.ToLower(strings.TrimSpace(excludeMode))
+	if excludeMode == "" {
+		return q
+	}
+	directoryAlias = strings.TrimSpace(directoryAlias)
+	if directoryAlias == "" {
+		directoryAlias = "directory"
+	}
+	return q.Where(fmt.Sprintf("COALESCE(%s.mode, '') <> ?", directoryAlias), excludeMode)
+}
+
+// applyDirectoryModeInclusion keeps only rows whose directory belongs to includeMode.
+// An empty includeMode disables the filter.
+func applyDirectoryModeInclusion(q *gorm.DB, directoryAlias, includeMode string) *gorm.DB {
+	includeMode = strings.ToLower(strings.TrimSpace(includeMode))
+	if includeMode == "" {
+		return q
+	}
+	directoryAlias = strings.TrimSpace(directoryAlias)
+	if directoryAlias == "" {
+		directoryAlias = "directory"
+	}
+	return q.Where(fmt.Sprintf("COALESCE(%s.mode, '') = ?", directoryAlias), includeMode)
+}
+
+// applyPathScopeFilter scopes rows to a folder below the directory root.
+// prefix is normalised to a slash-separated relative path without leading or
+// trailing slashes ("" means the directory root). When immediateOnly is true only
+// direct children of that folder are kept. Instr/substr are used instead of LIKE so
+// folder names containing "%" or "_" are treated literally.
+func applyPathScopeFilter(q *gorm.DB, locationAlias, prefix string, immediateOnly bool) *gorm.DB {
+	prefix = normalizeBrowsePrefix(prefix)
+	locationAlias = strings.TrimSpace(locationAlias)
+	if locationAlias == "" {
+		locationAlias = "video_location"
+	}
+	if prefix == "" {
+		if !immediateOnly {
+			return q
+		}
+		// 顶层直接视频：路径里不应再出现分隔符。
+		return q.Where("instr(" + locationAlias + ".relative_path, '/') = 0")
+	}
+	boundary := prefix + "/"
+	q = q.Where("instr("+locationAlias+".relative_path, ?) = 1", boundary)
+	if immediateOnly {
+		// 只要前缀之后不再出现分隔符，说明是本层直接视频。
+		q = q.Where("instr(substr("+locationAlias+".relative_path, ?), '/') = 0", len(prefix)+2)
+	}
+	return q
+}
+
+// normalizeBrowsePrefix cleans a browse path into a slash-separated relative path
+// without leading or trailing slashes.
+func normalizeBrowsePrefix(prefix string) string {
+	prefix = strings.ReplaceAll(strings.TrimSpace(prefix), "\\", "/")
+	return strings.Trim(prefix, "/")
+}
+
 func directoryFilterSQL(locationAlias string, directoryIDs []int64) string {
 	if hasZeroID(directoryIDs) {
 		return " AND 1 = 0"

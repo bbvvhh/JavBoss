@@ -175,7 +175,7 @@ func TestListVideosCanHideRecognizedJav(t *testing.T) {
 	if defaultCount != 2 {
 		t.Fatalf("default count should include recognized jav: got %d want 2", defaultCount)
 	}
-	defaultTags, err := ListTags(ctx, nil)
+	defaultTags, err := ListTags(ctx, nil, "")
 	if err != nil {
 		t.Fatalf("ListTags default: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestListVideosCanHideRecognizedJav(t *testing.T) {
 	if hiddenCount != 1 {
 		t.Fatalf("hide jav count should return only plain videos: got %d want 1", hiddenCount)
 	}
-	hiddenTags, err := ListTags(ctx, nil, true)
+	hiddenTags, err := ListTags(ctx, nil, "", true)
 	if err != nil {
 		t.Fatalf("ListTags hide jav: %v", err)
 	}

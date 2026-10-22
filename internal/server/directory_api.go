@@ -105,13 +105,14 @@ func createDirectory(c *gin.Context) {
 		RemotePath   string `json:"remote_path"`
 		Kind         string `json:"kind"`
 		ConnectionID int64  `json:"connection_id"`
+		Mode         string `json:"mode"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondLocalizedError(c, http.StatusBadRequest, "添加目录请求无效", "Invalid add-directory request")
 		return
 	}
 
-	source := dbpkg.DirectorySource{Kind: req.Kind, Path: strings.TrimSpace(req.Path)}
+	source := dbpkg.DirectorySource{Kind: req.Kind, Path: strings.TrimSpace(req.Path), Mode: req.Mode}
 	if storage.NormalizeKind(req.Kind) == storage.KindWebDAV {
 		source.Path = strings.TrimSpace(req.RemotePath)
 		if source.Path == "" {
@@ -159,6 +160,7 @@ func updateDirectory(c *gin.Context) {
 		Enabled                 *bool   `json:"enabled"`
 		AutoScanEnabled         *bool   `json:"auto_scan_enabled"`
 		AutoScanIntervalMinutes *int    `json:"auto_scan_interval_minutes"`
+		Mode                    *string `json:"mode"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondLocalizedError(c, http.StatusBadRequest, "修改目录请求无效", "Invalid directory update request")
@@ -244,6 +246,18 @@ func updateDirectory(c *gin.Context) {
 		if err != nil {
 			logging.Error("update directory scan settings error: %v", err)
 			respondLocalizedError(c, http.StatusBadRequest, "修改目录扫描设置失败", "Failed to update directory scan settings")
+			return
+		}
+		if dir == nil {
+			respondLocalizedError(c, http.StatusNotFound, "目录不存在", "Directory does not exist")
+			return
+		}
+	}
+	if req.Mode != nil {
+		dir, err = dbpkg.UpdateDirectoryMode(c.Request.Context(), id, *req.Mode)
+		if err != nil {
+			logging.Error("update directory mode error: %v", err)
+			respondLocalizedError(c, http.StatusBadRequest, "媒体模式无效", "Invalid media mode")
 			return
 		}
 		if dir == nil {

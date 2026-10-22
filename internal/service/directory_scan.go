@@ -92,7 +92,11 @@ func ScanDirectory(ctx context.Context, directory models.Directory) (*Summary, e
 	}
 	defer finish()
 
-	javLinks := newJavLinkBatch(scanCtx)
+	// 其它模式不做 JAV 刮削/自动关联：传 nil 让 JAV 关联阶段整体空转（Enqueue/Wait 均 nil 安全）。
+	var javLinks *javLinkBatch
+	if !directory.IsOtherMode() {
+		javLinks = newJavLinkBatch(scanCtx)
+	}
 	summary, err := runDirectoryScanWithSession(scanCtx, directory, javLinks)
 	return summary, err
 }
@@ -177,7 +181,10 @@ func StartManualDirectoryScan(directory models.Directory) error {
 	}
 	go func() {
 		defer finish()
-		javLinks := newJavLinkBatch(scanCtx)
+		var javLinks *javLinkBatch
+		if !directory.IsOtherMode() {
+			javLinks = newJavLinkBatch(scanCtx)
+		}
 		_, scanErr := runDirectoryScanWithSession(scanCtx, directory, javLinks)
 		// 封面补漏是扫描完成后的目录级维护任务，不应继续占用扫描会话。
 		finish()

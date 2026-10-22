@@ -301,7 +301,7 @@ func updateConfig(c *gin.Context) {
 	}
 	if s := strings.ToLower(strings.TrimSpace(req.InitialViewMode)); s != "" {
 		switch s {
-		case "video", "jav":
+		case "video", "jav", "other":
 			entries["initial_view_mode"] = s
 		default:
 			respondLocalizedError(c, http.StatusBadRequest, "初始页面模式无效", "Invalid initial page mode")

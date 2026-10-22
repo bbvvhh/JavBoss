@@ -15,18 +15,44 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// VideoQueryOptions carries the optional filters accepted by the video listing
+// queries. The zero value keeps the historic behaviour: no mode exclusion, no path
+// scope, JAV-linked locations included.
+type VideoQueryOptions struct {
+	// DirectoryIDs restricts rows to these directory ids (empty means no filter,
+	// a slice containing 0 means "match nothing").
+	DirectoryIDs []int64
+	// ExcludeMode hides directories whose mode equals this value (e.g. "other").
+	ExcludeMode string
+	// IncludeMode keeps only directories whose mode equals this value (e.g. "other").
+	IncludeMode string
+	// PathPrefix scopes rows to a folder below the directory root ("" means root).
+	PathPrefix string
+	// ImmediateOnly keeps only direct children of PathPrefix (no deeper paths).
+	ImmediateOnly bool
+	// HideJav keeps only locations without JAV metadata.
+	HideJav bool
+	// Seed enables the stable random ordering when greater than zero.
+	Seed *int64
+}
+
 // ListVideos returns paginated active video locations as video-like rows.
 // By default it includes locations already associated with JAV metadata.
 func ListVideos(ctx context.Context, limit, offset int, tagNames []string, search, sort string, seed *int64, directoryIDs []int64, hideJav ...bool) ([]models.Video, error) {
+	opts := VideoQueryOptions{DirectoryIDs: directoryIDs, Seed: seed}
+	if len(hideJav) > 0 {
+		opts.HideJav = hideJav[0]
+	}
+	return ListVideosWithOptions(ctx, limit, offset, tagNames, search, sort, opts)
+}
+
+// ListVideosWithOptions is ListVideos with explicit mode and path scoping.
+func ListVideosWithOptions(ctx context.Context, limit, offset int, tagNames []string, search, sort string, opts VideoQueryOptions) ([]models.Video, error) {
 	if limit <= 0 {
 		limit = 100
 	}
 	if offset < 0 {
 		offset = 0
-	}
-	hideRecognizedJav := false
-	if len(hideJav) > 0 {
-		hideRecognizedJav = hideJav[0]
 	}
 
 	orderClause := "video.created_at DESC, video_location.id DESC" // default: newest first
@@ -48,10 +74,10 @@ func ListVideos(ctx context.Context, limit, offset int, tagNames []string, searc
 	case "recent_asc":
 		orderClause = "video.created_at ASC, video_location.id ASC"
 	case "random":
-		if seed != nil && *seed > 0 {
+		if opts.Seed != nil && *opts.Seed > 0 {
 			orderExpr = clause.Expr{
 				SQL:  "stable_random_rank(video_location.id, ?), video_location.id",
-				Vars: []any{*seed},
+				Vars: []any{*opts.Seed},
 			}
 			useExpr = true
 		} else {
@@ -74,10 +100,13 @@ func ListVideos(ctx context.Context, limit, offset int, tagNames []string, searc
 		Preload("Video.Tags").
 		Limit(limit).
 		Offset(offset)
-	if hideRecognizedJav {
+	if opts.HideJav {
 		query = query.Where("video_location.jav_id IS NULL")
 	}
-	query = applyDirectoryFilter(query, "video_location", directoryIDs)
+	query = applyDirectoryFilter(query, "video_location", opts.DirectoryIDs)
+	query = applyDirectoryModeExclusion(query, "directory", opts.ExcludeMode)
+	query = applyDirectoryModeInclusion(query, "directory", opts.IncludeMode)
+	query = applyPathScopeFilter(query, "video_location", opts.PathPrefix, opts.ImmediateOnly)
 	if useExpr {
 		query = query.Order(clause.OrderBy{Expression: orderExpr})
 	} else {
@@ -120,12 +149,18 @@ func ListVideos(ctx context.Context, limit, offset int, tagNames []string, searc
 // CountVideos returns the total number of active locations that match optional filters.
 // By default it includes locations already associated with JAV metadata.
 func CountVideos(ctx context.Context, tagNames []string, search string, directoryIDs []int64, hideJav ...bool) (int64, error) {
+	opts := VideoQueryOptions{DirectoryIDs: directoryIDs}
+	if len(hideJav) > 0 {
+		opts.HideJav = hideJav[0]
+	}
+	return CountVideosWithOptions(ctx, tagNames, search, opts)
+}
+
+// CountVideosWithOptions is CountVideos with explicit mode and path scoping.
+func CountVideosWithOptions(ctx context.Context, tagNames []string, search string, opts VideoQueryOptions) (int64, error) {
 	cleanedTags := normalizeTagNames(tagNames)
 	cleanedSearch := strings.TrimSpace(search)
-	hideRecognizedJav := false
-	if len(hideJav) > 0 {
-		hideRecognizedJav = hideJav[0]
-	}
+	hideRecognizedJav := opts.HideJav
 	like := ""
 	if cleanedSearch != "" {
 		like = fmt.Sprintf("%%%s%%", cleanedSearch)
@@ -141,7 +176,10 @@ func CountVideos(ctx context.Context, tagNames []string, search string, director
 		if hideRecognizedJav {
 			base = base.Where("video_location.jav_id IS NULL")
 		}
-		base = applyDirectoryFilter(base, "video_location", directoryIDs)
+		base = applyDirectoryFilter(base, "video_location", opts.DirectoryIDs)
+		base = applyDirectoryModeExclusion(base, "directory", opts.ExcludeMode)
+		base = applyDirectoryModeInclusion(base, "directory", opts.IncludeMode)
+		base = applyPathScopeFilter(base, "video_location", opts.PathPrefix, opts.ImmediateOnly)
 		if like != "" {
 			base = base.Where("video_location.filename LIKE ? COLLATE NOCASE", like)
 		}
@@ -164,7 +202,10 @@ func CountVideos(ctx context.Context, tagNames []string, search string, director
 	if hideRecognizedJav {
 		sub = sub.Where("video_location.jav_id IS NULL")
 	}
-	sub = applyDirectoryFilter(sub, "video_location", directoryIDs)
+	sub = applyDirectoryFilter(sub, "video_location", opts.DirectoryIDs)
+	sub = applyDirectoryModeExclusion(sub, "directory", opts.ExcludeMode)
+	sub = applyDirectoryModeInclusion(sub, "directory", opts.IncludeMode)
+	sub = applyPathScopeFilter(sub, "video_location", opts.PathPrefix, opts.ImmediateOnly)
 
 	if like != "" {
 		sub = sub.Where("video_location.filename LIKE ? COLLATE NOCASE", like)
