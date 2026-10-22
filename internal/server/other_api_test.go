@@ -206,8 +206,14 @@ func TestOtherSearchEndpointFindsNestedFiles(t *testing.T) {
 		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
 	}
 	var payload struct {
-		Items []models.Video `json:"items"`
-		Total int64          `json:"total"`
+		Items   []models.Video `json:"items"`
+		Folders []struct {
+			DirectoryID int64  `json:"directory_id"`
+			Name        string `json:"name"`
+			Path        string `json:"path"`
+			VideoCount  int64  `json:"video_count"`
+		} `json:"folders"`
+		Total int64 `json:"total"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -241,6 +247,25 @@ func TestOtherSearchEndpointFindsNestedFiles(t *testing.T) {
 	}
 	if payload.Total != 1 || len(payload.Items) != 1 || payload.Items[0].Filename != "f.mp4" {
 		t.Fatalf("scoped result = %#v total=%d, want only f.mp4", payload.Items, payload.Total)
+	}
+
+	// 文件夹名同样参与搜索：叶子名 B 命中 A/B，并带上可跳转的目录 id。
+	byFolder := doJSON(t, router, http.MethodGet, "/other/search?search=B", "")
+	if byFolder.Code != http.StatusOK {
+		t.Fatalf("folder search status = %d body = %s", byFolder.Code, byFolder.Body.String())
+	}
+	if err := json.Unmarshal(byFolder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode folder search response: %v", err)
+	}
+	if len(payload.Folders) != 1 {
+		t.Fatalf("folder search = %#v, want only A/B", payload.Folders)
+	}
+	folder := payload.Folders[0]
+	if folder.DirectoryID != otherDir.ID || folder.Name != "B" || folder.Path != "A/B" || folder.VideoCount != 1 {
+		t.Fatalf("folder result = %#v", folder)
+	}
+	if payload.Total != 0 || len(payload.Items) != 0 {
+		t.Fatalf("folder search leaked videos: %#v", payload.Items)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"javboss/internal/common"
 	"javboss/internal/models"
@@ -126,6 +127,79 @@ func SearchOtherModeVideos(ctx context.Context, directoryID int64, prefix string
 // CountSearchOtherModeVideos counts the recursive filename matches for SearchOtherModeVideos.
 func CountSearchOtherModeVideos(ctx context.Context, directoryID int64, prefix, search string) (int64, error) {
 	return CountVideosWithOptions(ctx, nil, search, searchOtherModeOptions(directoryID, prefix, nil))
+}
+
+// OtherSearchFolder is a folder whose own name matches an other-mode keyword search.
+// DirectoryID tells the UI which other-mode directory the path belongs to, so a result
+// can be opened directly even when the search spans every directory.
+type OtherSearchFolder struct {
+	DirectoryID int64  `json:"directory_id"`
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	VideoCount  int64  `json:"video_count"`
+}
+
+// SearchOtherModeFolders walks every folder segment of the active other-mode video paths
+// and returns folders whose leaf name contains search. directoryID > 0 restricts the walk
+// to that directory, prefix narrows it to a subtree; 0 searches all other-mode directories.
+//
+// The walk is done with a recursive CTE so only matching rows leave SQLite. instr/lower
+// are used instead of LIKE so "%" and "_" in names are treated literally. Results are
+// capped because folders are not paginated (videos are).
+func SearchOtherModeFolders(ctx context.Context, directoryID int64, prefix, search string) ([]OtherSearchFolder, error) {
+	search = strings.TrimSpace(search)
+	if search == "" {
+		return nil, nil
+	}
+	prefix = normalizeBrowsePrefix(prefix)
+
+	where := `COALESCE(video_location.is_delete, 0) = 0
+		AND COALESCE(directory.is_delete, 0) = 0
+		AND COALESCE(directory.enabled, 1) <> 0
+		AND COALESCE(directory.mode, '') = '` + models.DirectoryModeOther + `'`
+	args := []any{}
+	if directoryID > 0 {
+		where += " AND video_location.directory_id = ?"
+		args = append(args, directoryID)
+	}
+	if prefix != "" {
+		where += " AND instr(video_location.relative_path, ?) = 1"
+		args = append(args, prefix+"/")
+	}
+	args = append(args, search)
+
+	raw := `WITH RECURSIVE seed(directory_id, relative_path) AS (
+			SELECT video_location.directory_id, video_location.relative_path
+			FROM video_location
+			JOIN directory ON directory.id = video_location.directory_id
+			WHERE ` + where + `
+		), parts(directory_id, rest, prefix, name) AS (
+			SELECT directory_id, relative_path, '', '' FROM seed
+			UNION ALL
+			SELECT p.directory_id,
+				substr(p.rest, instr(p.rest, '/') + 1),
+				CASE WHEN p.prefix = '' THEN substr(p.rest, 1, instr(p.rest, '/') - 1)
+					ELSE p.prefix || '/' || substr(p.rest, 1, instr(p.rest, '/') - 1) END,
+				substr(p.rest, 1, instr(p.rest, '/') - 1)
+			FROM parts p
+			WHERE instr(p.rest, '/') > 0
+		)
+		SELECT DISTINCT p.directory_id, p.prefix AS path, p.name,
+			(SELECT COUNT(*)
+				FROM video_location v
+				WHERE v.directory_id = p.directory_id
+					AND COALESCE(v.is_delete, 0) = 0
+					AND instr(v.relative_path, p.prefix || '/') = 1) AS video_count
+		FROM parts p
+		WHERE p.prefix <> '' AND instr(lower(p.name), lower(?)) > 0
+		ORDER BY p.name, p.directory_id, path
+		LIMIT 200`
+
+	var folders []OtherSearchFolder
+	if err := common.DB.WithContext(ctx).Raw(raw, args...).Scan(&folders).Error; err != nil {
+		return nil, fmt.Errorf("search other mode folders: %w", err)
+	}
+	return folders, nil
 }
 
 func searchOtherModeOptions(directoryID int64, prefix string, seed *int64) VideoQueryOptions {

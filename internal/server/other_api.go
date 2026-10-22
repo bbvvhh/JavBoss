@@ -103,9 +103,9 @@ func listOtherContents(c *gin.Context) {
 	})
 }
 
-// searchOtherContents searches video filenames recursively inside other-mode
-// directories. With no directory_id it searches every other-mode directory, which
-// backs the top-level search box of the other-mode view.
+// searchOtherContents searches video filenames and folder names recursively inside
+// other-mode directories. With no directory_id it searches every other-mode directory,
+// which backs the top-level search box of the other-mode view.
 func searchOtherContents(c *gin.Context) {
 	search := strings.TrimSpace(c.Query("search"))
 	if search == "" {
@@ -160,7 +160,17 @@ func searchOtherContents(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"directory": directory, "items": items, "total": total})
+	folders, err := dbpkg.SearchOtherModeFolders(ctx, int64(directoryID), path, search)
+	if err != nil {
+		logging.Error("search other mode folders error: %v", err)
+		respondLocalizedError(c, http.StatusInternalServerError, "搜索文件夹失败", "Failed to search folders")
+		return
+	}
+	if folders == nil {
+		folders = []dbpkg.OtherSearchFolder{}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"directory": directory, "folders": folders, "items": items, "total": total})
 }
 
 // parseOtherSeed reads the optional random seed shared by the other-mode endpoints.

@@ -182,6 +182,58 @@ func TestSearchOtherModeVideosWalksNestedFolders(t *testing.T) {
 	}
 }
 
+func TestSearchOtherModeFoldersMatchesFolderNames(t *testing.T) {
+	otherDir, videoDir := otherModeFixture(t)
+	ctx := context.Background()
+
+	// 文件夹名搜索必须递归到任意层级，且大小写不敏感：A/B 的叶子名是 B。
+	nested, err := SearchOtherModeFolders(ctx, otherDir.ID, "", "b")
+	if err != nil {
+		t.Fatalf("SearchOtherModeFolders b: %v", err)
+	}
+	if len(nested) != 1 {
+		t.Fatalf("folder search = %#v, want only A/B", nested)
+	}
+	if nested[0].DirectoryID != otherDir.ID || nested[0].Name != "B" || nested[0].Path != "A/B" {
+		t.Fatalf("folder A/B = %#v", nested[0])
+	}
+	if nested[0].VideoCount != 1 {
+		t.Fatalf("folder A/B video count = %d, want 1", nested[0].VideoCount)
+	}
+
+	// 计数是递归的：A 下含 A/B/f.mp4 与 A/g.mp4。
+	atRoot, err := SearchOtherModeFolders(ctx, otherDir.ID, "", "A")
+	if err != nil {
+		t.Fatalf("SearchOtherModeFolders A: %v", err)
+	}
+	if len(atRoot) != 1 || atRoot[0].Path != "A" || atRoot[0].VideoCount != 2 {
+		t.Fatalf("folder A = %#v", atRoot)
+	}
+
+	// 前缀把搜索限制在子树内：C 下没有名字含 b 的文件夹。
+	insideC, err := SearchOtherModeFolders(ctx, otherDir.ID, "C", "b")
+	if err != nil {
+		t.Fatalf("SearchOtherModeFolders C: %v", err)
+	}
+	if len(insideC) != 0 {
+		t.Fatalf("search inside C = %#v, want none", insideC)
+	}
+
+	// directoryID=0 搜索所有其它模式目录，视频模式目录不能混进来。
+	all, err := SearchOtherModeFolders(ctx, 0, "", "C")
+	if err != nil {
+		t.Fatalf("SearchOtherModeFolders global: %v", err)
+	}
+	if len(all) != 1 || all[0].Path != "C" || all[0].DirectoryID != otherDir.ID {
+		t.Fatalf("global folder search = %#v, want only %d/C", all, otherDir.ID)
+	}
+	for _, folder := range all {
+		if folder.DirectoryID == videoDir.ID {
+			t.Fatalf("global folder search leaked video-mode folder: %#v", folder)
+		}
+	}
+}
+
 func TestListVideosWithOptionsExcludesOtherModeDirectories(t *testing.T) {
 	otherDir, videoDir := otherModeFixture(t)
 	ctx := context.Background()
