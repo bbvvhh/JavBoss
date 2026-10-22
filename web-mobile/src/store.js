@@ -360,7 +360,7 @@ export const useStore = create((set, get) => ({
       const total = resp.total ?? 0
       set({
         otherDirectory: resp.directory || (useSearch ? state.otherDirectory : null),
-        otherFolders: useSearch ? [] : Array.isArray(resp.folders) ? resp.folders : [],
+        otherFolders: Array.isArray(resp.folders) ? resp.folders : [],
         otherItems: items,
         otherTotal: total,
         otherHasNext: state.randomSeed ? false : items.length < total,
@@ -380,9 +380,11 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  loadMoreOtherContents: async () => {
+  // 分页沿用首屏的搜索上下文：从搜索结果进入的文件夹首屏忽略关键词，
+  // 翻页也必须同样忽略，否则第二页会突然变成全库搜索结果。
+  loadMoreOtherContents: async ({ search } = {}) => {
     const state = get()
-    const keyword = state.searchTerm || ''
+    const keyword = (search === undefined ? state.searchTerm : search) || ''
     if (state.otherLoading || state.otherLoadingMore || !state.otherHasNext || state.randomSeed) {
       return
     }

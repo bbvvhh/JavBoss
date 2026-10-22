@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { fetchOtherDirectories } from '@/api'
 import Icon from '@/components/Icons'
@@ -60,11 +60,13 @@ function OtherSearchResults({ searchTerm }) {
   const resetOtherNav = useStore((state) => state.resetOtherNav)
   const density = useStore((state) => state.density)
   const videos = useStore((state) => state.otherItems)
+  const folders = useStore((state) => state.otherFolders)
   const total = useStore((state) => state.otherTotal)
   const loading = useStore((state) => state.otherLoading)
   const loadingMore = useStore((state) => state.otherLoadingMore)
   const hasNext = useStore((state) => state.otherHasNext)
   const error = useStore((state) => state.otherError)
+  const pushPage = useStore((state) => state.pushPage)
 
   useEffect(() => {
     useStore.getState().setOtherNav(null, '')
@@ -93,28 +95,51 @@ function OtherSearchResults({ searchTerm }) {
         </div>
       ) : null}
 
-      {loading || videos.length > 0 ? (
-        <VideoGrid
-          videos={videos}
-          density={density}
-          loading={loading}
-          loadingMore={loadingMore}
-          hasNext={hasNext}
-          total={total}
-          sentinelRef={sentinelRef}
-          onOpen={(video) => useStore.getState().openOtherVideo(video)}
-          onLongPress={(video) =>
-            useStore.getState().openActionSheet(video, {
-              hideScrape: true,
-              hideSelection: true,
-              playList: videos,
-            })
-          }
-        />
+      {loading || videos.length > 0 || folders.length > 0 ? (
+        <>
+          {folders.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {folders.map((folder) => (
+                <FolderRow
+                  key={`${folder.directory_id ?? ''}:${folder.path}`}
+                  label={folder.name || folder.path}
+                  count={Number(folder.video_count) || 0}
+                  onClick={() => {
+                    // 关键词保留在 store 里，返回上一层时能恢复搜索结果；
+                    // 本层通过 ignoreSearch 忽略关键词，展示文件夹内全部视频。
+                    pushPage('other-folder', {
+                      directoryId: folder.directory_id,
+                      path: folder.path,
+                      ignoreSearch: true,
+                    })
+                  }}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          <VideoGrid
+            videos={videos}
+            density={density}
+            loading={loading}
+            loadingMore={loadingMore}
+            hasNext={hasNext}
+            total={total}
+            sentinelRef={sentinelRef}
+            onOpen={(video) => useStore.getState().openOtherVideo(video)}
+            onLongPress={(video) =>
+              useStore.getState().openActionSheet(video, {
+                hideScrape: true,
+                hideSelection: true,
+                playList: videos,
+              })
+            }
+          />
+        </>
       ) : !loading && !error ? (
         <EmptyState
           icon="search"
-          title={zh('没有匹配的视频', 'No matching videos')}
+          title={zh('没有匹配的视频或文件夹', 'No matching videos or folders')}
           hint={zh('换个关键词试试', 'Try another keyword')}
         />
       ) : null}
@@ -186,7 +211,7 @@ function OtherDirectoryList() {
  * 每一级下钻都压在页面栈上，所以返回键 / Android 物理返回键天然就是「上钻一层」；
  * 面包屑点击则一次弹掉多级，直接跳回某个祖先层级。
  */
-function OtherFolderPage({ directoryId, path, onClose }) {
+function OtherFolderPage({ directoryId, path, onClose, ignoreSearch = false }) {
   const setOtherNav = useStore((state) => state.setOtherNav)
   const resetOtherNav = useStore((state) => state.resetOtherNav)
   const loadOtherContents = useStore((state) => state.loadOtherContents)
@@ -203,16 +228,24 @@ function OtherFolderPage({ directoryId, path, onClose }) {
   const hasNext = useStore((state) => state.otherHasNext)
   const error = useStore((state) => state.otherError)
 
+  // 从搜索结果进入的文件夹先忽略关键词，展示文件夹内全部视频；返回时关键词仍在，
+  // 上一层会恢复搜索结果。用户在文件夹内主动改了关键词则恢复正常过滤。
+  const initialSearchRef = useRef(searchTerm)
+  const [bypassSearch, setBypassSearch] = useState(ignoreSearch)
+  useEffect(() => {
+    if (searchTerm !== initialSearchRef.current) setBypassSearch(false)
+  }, [searchTerm])
+
   // 页面把自己所在层级写进 store（地址栏据此写 dir / path），返回或换层时复位。
   // 搜索词一并传入：其它模式没有筛选栏，搜索是顶栏那个全局入口，词一改就重拉。
   useEffect(() => {
     setOtherNav(directoryId, path)
-    loadOtherContents({ search: searchTerm })
+    loadOtherContents({ search: bypassSearch ? '' : searchTerm })
     return () => resetOtherNav()
-  }, [directoryId, path, searchTerm, setOtherNav, loadOtherContents, resetOtherNav])
+  }, [directoryId, path, searchTerm, bypassSearch, setOtherNav, loadOtherContents, resetOtherNav])
 
   const sentinelRef = useInfiniteScroll({
-    onLoadMore: () => loadMoreOtherContents(),
+    onLoadMore: () => loadMoreOtherContents({ search: bypassSearch ? '' : undefined }),
     enabled: hasNext && !loading && !loadingMore,
   })
 
@@ -275,10 +308,18 @@ function OtherFolderPage({ directoryId, path, onClose }) {
         <div className="flex flex-col gap-2 px-2.5 pt-2.5">
           {folders.map((folder) => (
             <FolderRow
-              key={folder.path}
+              key={`${folder.directory_id ?? ''}:${folder.path}`}
               label={folder.name || folder.path}
               count={Number(folder.video_count) || 0}
-              onClick={() => pushPage('other-folder', { directoryId, path: folder.path })}
+              onClick={() => {
+                // 命中搜索结果的文件夹可能来自更深层级：连同目录一起进入，
+                // 关键词保留在 store 里供返回恢复，本层打开时忽略它。
+                pushPage('other-folder', {
+                  directoryId: folder.directory_id || directoryId,
+                  path: folder.path,
+                  ignoreSearch: Boolean(searchTerm),
+                })
+              }}
             />
           ))}
         </div>
@@ -325,9 +366,21 @@ function OtherFolderPage({ directoryId, path, onClose }) {
  * 两种形态共用一个组件，是因为下钻时 `pushPage('other-folder', {directoryId, path})`
  * 之后 App 会用同一份 payload 重新渲染它 —— 页面栈的深度就是下钻的深度。
  */
-export default function OtherBrowserPage({ directoryId = null, path = '', onClose = null }) {
+export default function OtherBrowserPage({
+  directoryId = null,
+  path = '',
+  onClose = null,
+  ignoreSearch = false,
+}) {
   if (directoryId) {
-    return <OtherFolderPage directoryId={directoryId} path={path} onClose={onClose} />
+    return (
+      <OtherFolderPage
+        directoryId={directoryId}
+        path={path}
+        ignoreSearch={ignoreSearch}
+        onClose={onClose}
+      />
+    )
   }
   return <OtherDirectoryList />
 }

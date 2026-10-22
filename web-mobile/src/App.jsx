@@ -394,9 +394,10 @@ export default function App() {
       ) : null}
       {topPage?.type === 'other-folder' ? (
         <OtherBrowserPage
-          key={`${topPage.payload?.directoryId || ''}:${topPage.payload?.path || ''}`}
+          key={`${topPage.payload?.directoryId || ''}:${topPage.payload?.path || ''}:${topPage.payload?.ignoreSearch ? '1' : '0'}`}
           directoryId={topPage.payload?.directoryId || null}
           path={topPage.payload?.path || ''}
+          ignoreSearch={Boolean(topPage.payload?.ignoreSearch)}
           onClose={() => useStore.getState().popPage()}
         />
       ) : null}
