@@ -74,6 +74,18 @@ function OtherSearchResults({ searchTerm }) {
     return () => resetOtherNav()
   }, [searchTerm, loadOtherContents, resetOtherNav])
 
+  // 搜索结果页一直挂在文件夹页下面，返回时不会重新挂载；文件夹页卸载会清空共享列表，
+  // 所以页面栈回到顶层时要主动重新拉一次，恢复原关键词的搜索结果。
+  const pageDepth = useStore((state) => state.pages.length)
+  const prevPageDepthRef = useRef(pageDepth)
+  useEffect(() => {
+    const returned = prevPageDepthRef.current > 0 && pageDepth === 0
+    prevPageDepthRef.current = pageDepth
+    if (!returned) return
+    useStore.getState().setOtherNav(null, '')
+    loadOtherContents({ search: searchTerm })
+  }, [pageDepth, searchTerm, loadOtherContents])
+
   const sentinelRef = useInfiniteScroll({
     onLoadMore: () => loadMoreOtherContents(),
     enabled: hasNext && !loading && !loadingMore,
