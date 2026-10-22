@@ -27,8 +27,8 @@
 #   GH_MIRRORS         GitHub 加速前缀列表（按顺序尝试，最后再直连 github.com），
 #                      默认 "https://gh-proxy.com/ https://ghfast.top/ https://ghproxy.net/"
 #                      置空则只直连 github.com
-#   BUILD_WEB=1        先用 npm 重新构建 web/dist **与** web-mobile/dist
-#                      （默认复用仓库里已有的两个 dist）
+#   BUILD_WEB          默认 1：先用 npm 重新构建 web/dist **与** web-mobile/dist；
+#                      设为 0 则复用仓库里已有的两个 dist（构建更快，但版本号可能过期）
 #                      构建移动端时会把 VERSION 注入 VITE_APP_VERSION，「我的 / 关于」
 #                      页显示的版本号才会与包一致；复用旧 dist 则不注入（版本按
 #                      web-mobile/package.json 显示）
@@ -396,15 +396,20 @@ OUT_DIR="$ROOT_DIR/release/javboss-${VERSION}-linux-arm64-proot"
 WEB_DIST="$ROOT_DIR/web/dist"
 MOBILE_WEB_DIST="$ROOT_DIR/web-mobile/dist"
 
-if [[ "${BUILD_WEB:-0}" == "1" ]]; then
+if [[ "${BUILD_WEB:-1}" == "1" ]]; then
   need npm
+  # WSL 里常见的情况：脚本在 WSL bash 中跑，但 npm 是 /mnt/c 下的 Windows 版
+  # （最终由 node.exe 执行）。WSL 导出的环境变量不会自动传给 Windows 进程，
+  # 必须登记到 WSLENV 才能让 VITE_APP_VERSION 真正进入 vite build，否则移动端
+  # 会回落到 package.json 里的版本（如 0.1.0）。原生 Linux npm 下该变量无副作用。
+  export WSLENV="${WSLENV:+${WSLENV}:}VITE_APP_VERSION"
   say "构建前端（web 与 web-mobile 的 npm run build）"
   ( cd "$ROOT_DIR/web" && { [[ -d node_modules ]] || npm install; } && npm run build )
   # 把发布版本注入移动端：Vite 会把 VITE_APP_VERSION 写进产物，「我的 / 关于」
   # 页显示的版本才会和这个包一致；不注入就回落到 web-mobile/package.json 的 version。
   ( cd "$ROOT_DIR/web-mobile" && { [[ -d node_modules ]] || npm install; } && VITE_APP_VERSION="$VERSION" npm run build )
 elif [[ "${SKIP_MOBILE_WEB:-0}" != "1" ]]; then
-  say "提示：复用已有 web-mobile/dist，里面固化的版本号不会被改写；要显示 $VERSION 请用 BUILD_WEB=1 重新构建"
+  say "提示：已用 BUILD_WEB=0 跳过前端构建，复用已有 web-mobile/dist，里面固化的版本号不会被改写；要显示 $VERSION 请去掉 BUILD_WEB=0"
 fi
 
 [[ -f "$WEB_DIST/index.html" ]] || die "缺少 web/dist，请先执行：cd web && npm install && npm run build"
