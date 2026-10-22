@@ -948,7 +948,7 @@ export const useStore = create((set, get) => ({
       if (reqId !== otherLoadSeq || key !== otherListRequestKey(get())) return
       set({
         otherDirectory: resp.directory ?? (search ? get().otherDirectory : null),
-        otherFolders: search ? [] : (resp.folders ?? []),
+        otherFolders: resp.folders ?? [],
         otherItems: resp.items ?? [],
         otherTotal: resp.total ?? 0,
       })

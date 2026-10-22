@@ -42,6 +42,7 @@ export default function OtherView({
   toggleSelectVideo,
   onSelectDirectory,
   onSelectPath,
+  onOpenFolder,
   onLoadMore,
   searchActive = false,
   openPlayer,
@@ -140,10 +141,12 @@ export default function OtherView({
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {folders.map((folder) => (
                 <FolderTile
-                  key={folder.path}
+                  key={`${folder.directory_id ?? ''}:${folder.path}`}
                   name={folder.name}
                   count={folder.video_count}
-                  onClick={() => onSelectPath?.(folder.path)}
+                  onClick={() =>
+                    searchActive ? onOpenFolder?.(folder) : onSelectPath?.(folder.path)
+                  }
                 />
               ))}
             </div>
@@ -168,7 +171,7 @@ export default function OtherView({
           {folders.length === 0 && videos.length === 0 ? (
             <div className="rounded border border-dashed border-gray-200 p-6 text-center text-gray-500">
               {searchActive
-                ? zh('没有匹配的视频。', 'No matching videos.')
+                ? zh('没有匹配的视频或文件夹。', 'No matching videos or folders.')
                 : zh('这里没有视频或文件夹。', 'No videos or folders here.')}
             </div>
           ) : null}

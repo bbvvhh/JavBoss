@@ -802,6 +802,19 @@ export default function App() {
     [handleOpenPlayer]
   )
 
+  // 搜索结果里的文件夹可能属于别的其它模式目录，点击后要连目录一起切过去；
+  // 同时清掉搜索词，进入文件夹后展示该层正常内容而不是继续过滤。
+  const handleOpenOtherFolder = useCallback((folder) => {
+    if (!folder) return
+    const state = useStore.getState()
+    state.setSearchTerm('')
+    const directoryId = Number(folder.directory_id)
+    if (directoryId > 0 && directoryId !== Number(state.otherDirectoryId)) {
+      state.setOtherDirectoryId(directoryId)
+    }
+    state.setOtherPath(folder.path || '')
+  }, [])
+
   const handleSelectPlayerVideo = useCallback((next) => {
     if (!next) return
     setPlayerStartTime(0)
@@ -4685,6 +4698,7 @@ export default function App() {
             toggleSelectVideo={toggleSelectVideo}
             onSelectDirectory={setOtherDirectoryId}
             onSelectPath={setOtherPath}
+            onOpenFolder={handleOpenOtherFolder}
             onLoadMore={loadMoreOtherContents}
             searchActive={Boolean(searchTerm)}
             openPlayer={handleOpenOtherPlayer}
