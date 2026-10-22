@@ -46,6 +46,7 @@ export default function PlayerModal({
   showHotkeyHint = true,
   onPlaybackError,
   playlist = [],
+  playlistLabel = '',
   onSelectVideo,
 }) {
   const videoContainerRef = useRef(null)
@@ -74,7 +75,8 @@ export default function PlayerModal({
   const [activeSubtitleId, setActiveSubtitleId] = useState(null)
   const [subtitlePanelOpen, setSubtitlePanelOpen] = useState(false)
   const [subtitleError, setSubtitleError] = useState('')
-  // 其它模式的「同文件夹视频」播放列表；普通视频模式下 playlist 为空，入口不显示。
+  // 其它模式的「同文件夹视频」/ JAV 模式的「同番号视频」播放列表；
+  // 只有一个视频时入口没有意义，直接不显示。
   const [playlistOpen, setPlaylistOpen] = useState(false)
   // 自动连播默认开启，用户手动关掉后记住选择。
   const [autoPlayNext, setAutoPlayNext] = useState(() => {
@@ -115,9 +117,11 @@ export default function PlayerModal({
     return selectPlaybackSource(playbackInfo, document.createElement('video'))
   }, [playbackInfo])
 
-  // 播放列表里当前视频的位置。列表来自「同文件夹视频」，顺序与列表页保持一致。
+  // 播放列表里当前视频的位置。列表来自「同文件夹视频」或 JAV 模式的「同番号视频」，
+  // 顺序与列表页保持一致。
   const playlistIndex = playlist.findIndex((item) => Number(item?.id) === Number(video?.id))
-  const hasPlaylist = playlistIndex >= 0
+  const hasPlaylist = playlist.length > 1 && playlistIndex >= 0
+  const playlistTitle = playlistLabel || zh('同文件夹视频', 'Videos in this folder')
   const nextPlaylistVideo =
     hasPlaylist && playlistIndex < playlist.length - 1 ? playlist[playlistIndex + 1] : null
   // 播放结束事件在老 effect 里注册，用 ref 读最新的「是否连播 / 下一个是谁」。
@@ -614,12 +618,12 @@ export default function PlayerModal({
     />
   )
 
-  // 同文件夹播放列表：条目顺序与列表页一致，点击立即切换视频。
+  // 播放列表：条目顺序与列表页一致，点击立即切换视频。
   const playlistPanel = hasPlaylist ? (
     <div className="flex h-full flex-col bg-white">
       <div className="flex items-center gap-2 border-b border-zinc-200 px-2 py-1.5">
         <span className="min-w-0 flex-1 truncate text-xs font-semibold text-zinc-800">
-          {zh('同文件夹视频', 'Videos in this folder')}
+          {playlistTitle}
         </span>
         <label className="flex shrink-0 items-center gap-1 text-[10px] text-zinc-500">
           {zh('自动连播', 'Autoplay next')}
@@ -702,7 +706,7 @@ export default function PlayerModal({
             <button
               type="button"
               aria-label={zh('播放列表', 'Playlist')}
-              title={zh('同文件夹视频', 'Videos in this folder')}
+              title={playlistTitle}
               aria-pressed={playlistOpen}
               onClick={() => {
                 setPlaylistOpen((open) => !open)
@@ -823,7 +827,7 @@ export default function PlayerModal({
                     <button
                       type="button"
                       aria-label={zh('播放列表', 'Playlist')}
-                      title={zh('同文件夹视频', 'Videos in this folder')}
+                      title={playlistTitle}
                       onClick={() => setPlaylistOpen(true)}
                       className="inline-flex h-8 items-center gap-1 rounded-full bg-black/60 px-2.5 text-xs font-medium text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                     >

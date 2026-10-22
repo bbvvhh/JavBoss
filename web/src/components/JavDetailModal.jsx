@@ -800,7 +800,9 @@ export default function JavDetailModal({
                 selectedIds={emptyVideoSelection}
                 onToggleSelect={() => {}}
                 showSelection={false}
-                onPlay={onVideoPlay}
+                onPlay={(video) =>
+                  onVideoPlay?.(video, videos, zh('同番号视频', 'Videos with the same code'))
+                }
                 onOpenFile={onVideoOpenFile}
                 onRevealFile={onVideoRevealFile}
                 openFileLabel={openFileLabel}

@@ -345,8 +345,9 @@ export default function App() {
   const [locationPickerAction, setLocationPickerAction] = useState('play')
   const [playerVideo, setPlayerVideo] = useState(null)
   const [playerStartTime, setPlayerStartTime] = useState(0)
-  // 其它模式的播放页会带上一份「同文件夹视频」播放列表；切到别的播放入口时清空。
+  // 其它模式 / JAV 模式的播放页会带上一份播放列表；切到别的播放入口时清空。
   const [playerPlaylist, setPlayerPlaylist] = useState([])
+  const [playerPlaylistLabel, setPlayerPlaylistLabel] = useState('')
   const [screenshotsVideo, setScreenshotsVideo] = useState(null)
   const [screenshotsAllowSetCover, setScreenshotsAllowSetCover] = useState(true)
   const [scrapeSettingsVideo, setScrapeSettingsVideo] = useState(null)
@@ -481,7 +482,7 @@ export default function App() {
     }
   }, [])
 
-  const javVideoChoices = javVideoPickerItem?.videos || []
+  const javVideoChoices = useMemo(() => javVideoPickerItem?.videos || [], [javVideoPickerItem])
   const locationPickerItem = locationPickerVideo
     ? {
         code:
@@ -714,6 +715,9 @@ export default function App() {
     (video, startTime) => {
       if (!video) return
       if (browserPlaybackOnly || defaultPlayer === 'browser') {
+        // 从截图等明确时间点进入时没有上下文列表，清掉上一次的播放列表，避免串播。
+        setPlayerPlaylist([])
+        setPlayerPlaylistLabel('')
         setPlayerStartTime(startTime || 0)
         setPlayerVideo(video)
         return
@@ -746,8 +750,9 @@ export default function App() {
   )
 
   const handleOpenPlayer = useCallback(
-    (video, playlist = null) => {
+    (video, playlist = null, playlistLabel = '') => {
       setPlayerPlaylist(Array.isArray(playlist) ? playlist : [])
+      setPlayerPlaylistLabel(Array.isArray(playlist) ? playlistLabel : '')
       const choices = getVideoLocationChoices(video)
       if (choices.length > 1) {
         openLocationPicker(video, 'play', choices)
@@ -774,7 +779,7 @@ export default function App() {
       const initial = loaded.some((item) => Number(item.id) === Number(video.id))
         ? loaded
         : [video, ...loaded]
-      handleOpenPlayer(video, initial)
+      handleOpenPlayer(video, initial, zh('同文件夹视频', 'Videos in this folder'))
 
       const directoryId = Number(video.directory_id) || state.otherDirectoryId
       if (!directoryId) return
@@ -1106,7 +1111,7 @@ export default function App() {
       }
       const target = video || videos[0]
       if (target) {
-        handleOpenPlayer(target)
+        handleOpenPlayer(target, videos, zh('同番号视频', 'Videos with the same code'))
       }
     },
     [defaultPlayer, playVideosWithMPV, showCenterToast, handleOpenPlayer]
@@ -1189,7 +1194,7 @@ export default function App() {
     async (video) => {
       if (!video) return
       if (javVideoPickerAction === 'play') {
-        handleOpenPlayer(video)
+        handleOpenPlayer(video, javVideoChoices, zh('同番号视频', 'Videos with the same code'))
         closeJavVideoPicker()
         return
       }
@@ -1227,6 +1232,7 @@ export default function App() {
       handleOpenPlayer,
       handleRevealVideoFile,
       isVideoOpenable,
+      javVideoChoices,
       javVideoPickerAction,
       openJavScreenshots,
       showCenterToast,
@@ -4797,11 +4803,13 @@ export default function App() {
         showHotkeyHint={configFlag(config?.browser_player_show_hotkey_hint, true)}
         onPlaybackError={showCenterToast}
         playlist={playerPlaylist}
+        playlistLabel={playerPlaylistLabel}
         onSelectVideo={handleSelectPlayerVideo}
         onClose={() => {
           setPlayerVideo(null)
           setPlayerStartTime(0)
           setPlayerPlaylist([])
+          setPlayerPlaylistLabel('')
         }}
       />
 
