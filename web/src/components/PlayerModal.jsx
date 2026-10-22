@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
+import PlaylistPlayRoundedIcon from '@mui/icons-material/PlaylistPlayRounded'
 import SubtitlesRoundedIcon from '@mui/icons-material/SubtitlesRounded'
+import Switch from '@mui/material/Switch'
 import videojs from 'video.js'
 import 'video.js/dist/video-js.css'
 import {
@@ -29,6 +31,7 @@ import { getErrorMessage } from '@/utils/errors'
 import { selectPlaybackSource, startBrowserPlayback } from '@/utils/browserPlayback'
 
 const VOLUME_STORAGE_KEY = 'javboss.player.volume'
+const AUTOPLAY_NEXT_STORAGE_KEY = 'javboss.player.autoplay-next'
 const HOTKEY_HINT_DURATION_MS = 5000
 
 function formatSignedAmount(amount) {
@@ -42,6 +45,8 @@ export default function PlayerModal({
   hotkeys = null,
   showHotkeyHint = true,
   onPlaybackError,
+  playlist = [],
+  onSelectVideo,
 }) {
   const videoContainerRef = useRef(null)
   const playerRef = useRef(null)
@@ -69,6 +74,16 @@ export default function PlayerModal({
   const [activeSubtitleId, setActiveSubtitleId] = useState(null)
   const [subtitlePanelOpen, setSubtitlePanelOpen] = useState(false)
   const [subtitleError, setSubtitleError] = useState('')
+  // 其它模式的「同文件夹视频」播放列表；普通视频模式下 playlist 为空，入口不显示。
+  const [playlistOpen, setPlaylistOpen] = useState(false)
+  // 自动连播默认开启，用户手动关掉后记住选择。
+  const [autoPlayNext, setAutoPlayNext] = useState(() => {
+    try {
+      return localStorage.getItem(AUTOPLAY_NEXT_STORAGE_KEY) !== '0'
+    } catch {
+      return true
+    }
+  })
   // 全屏：video.js 全屏的是 .video-js 元素，Modal 头部（含字幕入口）会被隐藏；
   // 这时需要把字幕入口和面板搬进播放器元素内部（playerEl 是它的 DOM 节点）。
   const [fullscreen, setFullscreen] = useState(false)
@@ -99,6 +114,27 @@ export default function PlayerModal({
   const selectedSource = useMemo(() => {
     return selectPlaybackSource(playbackInfo, document.createElement('video'))
   }, [playbackInfo])
+
+  // 播放列表里当前视频的位置。列表来自「同文件夹视频」，顺序与列表页保持一致。
+  const playlistIndex = playlist.findIndex((item) => Number(item?.id) === Number(video?.id))
+  const hasPlaylist = playlistIndex >= 0
+  const nextPlaylistVideo =
+    hasPlaylist && playlistIndex < playlist.length - 1 ? playlist[playlistIndex + 1] : null
+  // 播放结束事件在老 effect 里注册，用 ref 读最新的「是否连播 / 下一个是谁」。
+  const playNextRef = useRef(null)
+  useEffect(() => {
+    playNextRef.current = () => {
+      if (!autoPlayNext || !nextPlaylistVideo) return
+      onSelectVideo?.(nextPlaylistVideo)
+    }
+  }, [autoPlayNext, nextPlaylistVideo, onSelectVideo])
+  useEffect(() => {
+    try {
+      localStorage.setItem(AUTOPLAY_NEXT_STORAGE_KEY, autoPlayNext ? '1' : '0')
+    } catch {
+      return
+    }
+  }, [autoPlayNext])
 
   // 默认搜索关键词永远是 jav 表的 code（番号），本地文件名只用于「哪份字幕更合适」的匹配。
   // 优先级：服务端解析出的 jav_code > video 对象上带的 jav 关联。
@@ -494,6 +530,8 @@ export default function PlayerModal({
       finished = true
       setResumeNotice(false)
       clearVideoPlayback(video.id).catch(() => {})
+      // 自动连播：播放完当前视频后接着播同文件夹的下一个。
+      playNextRef.current?.()
     }
 
     const stopPlayback = startBrowserPlayback(
@@ -576,6 +614,73 @@ export default function PlayerModal({
     />
   )
 
+  // 同文件夹播放列表：条目顺序与列表页一致，点击立即切换视频。
+  const playlistPanel = hasPlaylist ? (
+    <div className="flex h-full flex-col bg-white">
+      <div className="flex items-center gap-2 border-b border-zinc-200 px-2 py-1.5">
+        <span className="min-w-0 flex-1 truncate text-xs font-semibold text-zinc-800">
+          {zh('同文件夹视频', 'Videos in this folder')}
+        </span>
+        <label className="flex shrink-0 items-center gap-1 text-[10px] text-zinc-500">
+          {zh('自动连播', 'Autoplay next')}
+          <Switch
+            size="small"
+            checked={autoPlayNext}
+            onChange={(event) => setAutoPlayNext(event.target.checked)}
+            inputProps={{ 'aria-label': zh('自动播放下个文件', 'Autoplay next file') }}
+          />
+        </label>
+        <button
+          type="button"
+          aria-label={zh('关闭', 'Close')}
+          title={zh('关闭', 'Close')}
+          onClick={() => setPlaylistOpen(false)}
+          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        >
+          <CloseRoundedIcon sx={{ fontSize: 14 }} />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {playlist.map((item) => {
+          const active = Number(item?.id) === Number(video?.id)
+          return (
+            <button
+              key={`${item.location_id || item.id}-${item.id}`}
+              type="button"
+              onClick={() => {
+                if (!active) onSelectVideo?.(item)
+              }}
+              className={`flex w-full items-center gap-2 border-b border-zinc-100 px-2 py-1.5 text-left transition ${
+                active ? 'bg-blue-50' : 'hover:bg-zinc-50'
+              }`}
+            >
+              <img
+                src={`/videos/${item.id}/thumbnail`}
+                alt=""
+                loading="lazy"
+                className="h-10 w-16 flex-none rounded bg-zinc-200 object-cover"
+              />
+              <span className="min-w-0 flex-1">
+                <span
+                  className={`block truncate text-[11px] ${
+                    active ? 'font-semibold text-blue-700' : 'text-zinc-700'
+                  }`}
+                >
+                  {getVideoDisplayName(item)}
+                </span>
+                {active ? (
+                  <span className="block text-[10px] text-blue-600">
+                    {zh('正在播放', 'Now playing')}
+                  </span>
+                ) : null}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  ) : null
+
   return (
     <AppModal
       ariaLabel={displayName || zh('视频播放', 'Video playback')}
@@ -593,12 +698,35 @@ export default function PlayerModal({
           >
             {displayName}
           </h2>
+          {hasPlaylist ? (
+            <button
+              type="button"
+              aria-label={zh('播放列表', 'Playlist')}
+              title={zh('同文件夹视频', 'Videos in this folder')}
+              aria-pressed={playlistOpen}
+              onClick={() => {
+                setPlaylistOpen((open) => !open)
+                setSubtitlePanelOpen(false)
+              }}
+              className={`inline-flex h-5 shrink-0 items-center gap-1 rounded-full px-1.5 text-[10px] font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                playlistOpen
+                  ? 'bg-blue-600 text-white'
+                  : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800'
+              }`}
+            >
+              <PlaylistPlayRoundedIcon sx={{ fontSize: 14 }} />
+              <span>{playlist.length}</span>
+            </button>
+          ) : null}
           <button
             type="button"
             aria-label={zh('在线字幕', 'Online subtitles')}
             title={zh('在线字幕', 'Online subtitles')}
             aria-pressed={subtitlePanelOpen}
-            onClick={() => setSubtitlePanelOpen((open) => !open)}
+            onClick={() => {
+              setSubtitlePanelOpen((open) => !open)
+              setPlaylistOpen(false)
+            }}
             className={`inline-flex h-5 shrink-0 items-center gap-1 rounded-full px-1.5 text-[10px] font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
               subtitlePanelOpen
                 ? 'bg-blue-600 text-white'
@@ -672,34 +800,48 @@ export default function PlayerModal({
               ) : null}
             </>
           )}
-          {subtitlePanelOpen ? (
+          {subtitlePanelOpen || playlistOpen ? (
             fullscreen && playerEl ? (
               createPortal(
                 <div className="absolute right-0 top-0 z-30 h-full w-[330px] max-w-full overflow-hidden border-l border-zinc-200 bg-white shadow-2xl">
-                  {subtitlePanel}
+                  {subtitlePanelOpen ? subtitlePanel : playlistPanel}
                 </div>,
                 playerEl
               )
             ) : (
               <div className="absolute right-0 top-0 z-20 h-full w-[330px] max-w-full overflow-hidden rounded-l-md border-l border-zinc-200 shadow-2xl">
-                {subtitlePanel}
+                {subtitlePanelOpen ? subtitlePanel : playlistPanel}
               </div>
             )
           ) : null}
-          {/* 全屏时 Modal 头部被隐藏（含字幕入口），这里在播放器元素内补一个，
-              点开即可选择 / 下载 / 关闭字幕。 */}
-          {fullscreen && playerEl && !subtitlePanelOpen
+          {/* 全屏时 Modal 头部被隐藏（含字幕 / 播放列表入口），这里在播放器元素内补上，
+              点开即可选择字幕或切换到同文件夹的其它视频。 */}
+          {fullscreen && playerEl && !subtitlePanelOpen && !playlistOpen
             ? createPortal(
-                <button
-                  type="button"
-                  aria-label={zh('在线字幕', 'Online subtitles')}
-                  title={zh('在线字幕', 'Online subtitles')}
-                  onClick={() => setSubtitlePanelOpen(true)}
-                  className="absolute right-3 top-3 z-30 inline-flex h-8 items-center gap-1 rounded-full bg-black/60 px-2.5 text-xs font-medium text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                >
-                  <SubtitlesRoundedIcon sx={{ fontSize: 16 }} />
-                  {subtitles.length > 0 ? <span>{subtitles.length}</span> : null}
-                </button>,
+                <div className="absolute right-3 top-3 z-30 flex flex-col items-end gap-2">
+                  {hasPlaylist ? (
+                    <button
+                      type="button"
+                      aria-label={zh('播放列表', 'Playlist')}
+                      title={zh('同文件夹视频', 'Videos in this folder')}
+                      onClick={() => setPlaylistOpen(true)}
+                      className="inline-flex h-8 items-center gap-1 rounded-full bg-black/60 px-2.5 text-xs font-medium text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                    >
+                      <PlaylistPlayRoundedIcon sx={{ fontSize: 16 }} />
+                      <span>{playlist.length}</span>
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    aria-label={zh('在线字幕', 'Online subtitles')}
+                    title={zh('在线字幕', 'Online subtitles')}
+                    onClick={() => setSubtitlePanelOpen(true)}
+                    className="inline-flex h-8 items-center gap-1 rounded-full bg-black/60 px-2.5 text-xs font-medium text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  >
+                    <SubtitlesRoundedIcon sx={{ fontSize: 16 }} />
+                    {subtitles.length > 0 ? <span>{subtitles.length}</span> : null}
+                  </button>
+                </div>,
                 playerEl
               )
             : null}

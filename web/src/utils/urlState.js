@@ -75,9 +75,17 @@ const parseIntSafe = (val, def = 1) => {
 
 export const parseUrlState = (searchString = window.location.search, options = {}) => {
   const sp = new URLSearchParams(searchString)
-  const defaultView = options.defaultView === 'jav' ? 'jav' : 'video'
+  const defaultView =
+    options.defaultView === 'jav' ? 'jav' : options.defaultView === 'other' ? 'other' : 'video'
   const rawView = sp.get('view')
-  const view = rawView === 'jav' ? 'jav' : rawView === 'video' ? 'video' : defaultView
+  const view =
+    rawView === 'jav'
+      ? 'jav'
+      : rawView === 'other'
+        ? 'other'
+        : rawView === 'video'
+          ? 'video'
+          : defaultView
   const videoTempSort = normalizeVideoSort((sp.get('temp_sort') || '').trim(), '')
 
   const video = {
@@ -141,11 +149,23 @@ export const parseUrlState = (searchString = window.location.search, options = {
     seed: clampSeed(sp.get('seed')),
   }
 
-  return { view, video, jav }
+  const other = {
+    directoryId: parsePositiveInt(sp.get('dir')),
+    path: (sp.get('path') || '').trim(),
+  }
+
+  return { view, video, jav, other }
 }
 
 export const buildUrlFromState = (state, basePath = window.location.pathname) => {
   const sp = new URLSearchParams()
+  if (state.view === 'other') {
+    sp.set('view', 'other')
+    if (state.other?.directoryId) sp.set('dir', String(state.other.directoryId))
+    if (state.other?.path) sp.set('path', state.other.path)
+    const query = sp.toString()
+    return `${basePath}${query ? `?${query}` : ''}`
+  }
   if (state.view === 'jav') {
     sp.set('view', 'jav')
     if (
@@ -248,7 +268,7 @@ export const normalizeUrlStateFromStore = (store, tagsByName) => {
         .filter((id) => Number.isFinite(id) && id > 0)
 
   return {
-    view: store.viewMode === 'jav' ? 'jav' : 'video',
+    view: store.viewMode === 'jav' ? 'jav' : store.viewMode === 'other' ? 'other' : 'video',
     video: {
       page: store.randomMode ? 1 : store.page,
       search: (store.searchTerm || '').trim(),
@@ -314,6 +334,10 @@ export const normalizeUrlStateFromStore = (store, tagsByName) => {
             : '',
       random: store.javTab === 'list' && store.javRandomMode,
       seed: store.javTab === 'list' && store.javRandomMode ? store.javRandomSeed : null,
+    },
+    other: {
+      directoryId: store.otherDirectoryId || null,
+      path: store.otherPath || '',
     },
   }
 }

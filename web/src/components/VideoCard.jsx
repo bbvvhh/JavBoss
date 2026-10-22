@@ -33,6 +33,7 @@ export default function VideoCard({
   showTagEditor = true,
   onOpenScreenshots,
   onOpenScrapeSettings,
+  showScrapeSettings = true,
   onRenameVideo,
   onDeleteVideo,
   onTagClick,
@@ -277,16 +278,18 @@ export default function VideoCard({
               <MovieEdit fontSize="inherit" />
             </IconButton>
           </Tooltip>
-          <Tooltip title={zh('刮削设置', 'Scrape settings')}>
-            <IconButton
-              size="small"
-              onClick={handleOpenScrapeSettings}
-              aria-label={zh('刮削设置', 'Scrape settings')}
-              className={`h-6 w-6 ${hasScrapeOverride ? 'text-blue-700' : ''}`}
-            >
-              <ManageSearchIcon fontSize="inherit" />
-            </IconButton>
-          </Tooltip>
+          {showScrapeSettings ? (
+            <Tooltip title={zh('刮削设置', 'Scrape settings')}>
+              <IconButton
+                size="small"
+                onClick={handleOpenScrapeSettings}
+                aria-label={zh('刮削设置', 'Scrape settings')}
+                className={`h-6 w-6 ${hasScrapeOverride ? 'text-blue-700' : ''}`}
+              >
+                <ManageSearchIcon fontSize="inherit" />
+              </IconButton>
+            </Tooltip>
+          ) : null}
           <Tooltip title={zh('在线字幕', 'Online subtitles')}>
             <IconButton
               size="small"

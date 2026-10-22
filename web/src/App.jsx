@@ -46,6 +46,7 @@ import {
   processDirectory,
   scanDirectory,
   fetchVideos,
+  fetchOtherContents,
 } from '@/api'
 import GlobalSettingsModal from '@/components/GlobalSettingsModal'
 import DownloadView from '@/components/DownloadView'
@@ -64,6 +65,7 @@ import SelectionJavTagsModal from '@/components/SelectionJavTagsModal'
 import SelectionTagsModal from '@/components/SelectionTagsModal'
 import TagPickerModal from '@/components/TagPickerModal'
 import Toast from '@/components/Toast'
+import OtherView from '@/components/OtherView'
 import SideTabs from '@/components/SideTabs'
 import TopBar from '@/components/TopBar'
 import PlayerModal from '@/components/PlayerModal'
@@ -93,6 +95,7 @@ import VideoRoute from '@/routes/VideoRoute'
 import { zh } from '@/utils/i18n'
 import { getErrorMessage } from '@/utils/errors'
 import { buildVideoFullPath } from '@/utils/display'
+import { getVideoFolderPath } from '@/utils/videoPath'
 import { shouldApplyDefaultRandom } from '@/utils/defaultRandom'
 import { mediaRequestFields, isRemoteIdentity } from '@/utils/directorySource'
 import { getIdolDisplayName } from '@/utils/javIdol'
@@ -133,12 +136,14 @@ const configFlag = (value, fallback = false) => {
   return !['0', 'false', 'no', 'off'].includes(String(value).trim().toLowerCase())
 }
 
-const normalizeInitialViewMode = (value) =>
-  String(value || '')
+const normalizeInitialViewMode = (value) => {
+  const normalized = String(value || '')
     .trim()
-    .toLowerCase() === 'jav'
-    ? 'jav'
-    : 'video'
+    .toLowerCase()
+  if (normalized === 'jav') return 'jav'
+  if (normalized === 'other') return 'other'
+  return 'video'
+}
 
 function applyScrapeOverrideToVideo(video, override) {
   const nextOverride = String(override || '').trim()
@@ -294,6 +299,18 @@ export default function App() {
     createDirectory,
     updateDirectory,
     deleteDirectory,
+    otherDirectoryId,
+    otherPath,
+    otherFolders,
+    otherItems,
+    otherTotal,
+    otherLoading,
+    otherLoadingMore,
+    otherError,
+    setOtherDirectoryId,
+    setOtherPath,
+    loadOtherContents,
+    loadMoreOtherContents,
     subtitleManagerVideos,
     closeSubtitleManager,
   } = useStore()
@@ -328,6 +345,8 @@ export default function App() {
   const [locationPickerAction, setLocationPickerAction] = useState('play')
   const [playerVideo, setPlayerVideo] = useState(null)
   const [playerStartTime, setPlayerStartTime] = useState(0)
+  // 其它模式的播放页会带上一份「同文件夹视频」播放列表；切到别的播放入口时清空。
+  const [playerPlaylist, setPlayerPlaylist] = useState([])
   const [screenshotsVideo, setScreenshotsVideo] = useState(null)
   const [screenshotsAllowSetCover, setScreenshotsAllowSetCover] = useState(true)
   const [scrapeSettingsVideo, setScrapeSettingsVideo] = useState(null)
@@ -344,6 +363,7 @@ export default function App() {
   const [hydrated, setHydrated] = useState(false)
   const [configLoaded, setConfigLoaded] = useState(false)
   const isJavMode = viewMode === 'jav'
+  const isOtherMode = viewMode === 'other'
 
   useEffect(() => {
     if (javTab !== 'download') return
@@ -365,6 +385,10 @@ export default function App() {
         .filter((directory) => !directory?.is_delete)
         .map((directory) => `${directory.id}:${directory.enabled !== false ? '1' : '0'}`)
         .join(','),
+    [directories]
+  )
+  const otherDirectories = useMemo(
+    () => directories.filter((directory) => String(directory?.mode || '') === 'other'),
     [directories]
   )
   const [tagPickerFor, setTagPickerFor] = useState(null)
@@ -722,7 +746,8 @@ export default function App() {
   )
 
   const handleOpenPlayer = useCallback(
-    (video) => {
+    (video, playlist = null) => {
+      setPlayerPlaylist(Array.isArray(playlist) ? playlist : [])
       const choices = getVideoLocationChoices(video)
       if (choices.length > 1) {
         openLocationPicker(video, 'play', choices)
@@ -732,6 +757,51 @@ export default function App() {
     },
     [defaultPlayer, getVideoLocationChoices, openLocationPicker, playVideoWith]
   )
+
+  // 其它模式：播放页展示同文件夹的视频，并支持自动连播。
+  // 先用列表里已加载的同一层视频立即打开播放器，再异步补齐整个文件夹，
+  // 这样分页只加载了 25 条时也不会在自动连播到一半时提前停下。
+  const handleOpenOtherPlayer = useCallback(
+    (video) => {
+      if (!video) return
+      const folderPath = getVideoFolderPath(video)
+      const state = useStore.getState()
+      const sort = state.randomMode ? 'random' : state.videoTempSort || state.sortOrder
+      const seed = state.randomMode ? state.randomSeed : null
+      const loaded = (state.otherItems || []).filter(
+        (item) => getVideoFolderPath(item) === folderPath
+      )
+      const initial = loaded.some((item) => Number(item.id) === Number(video.id))
+        ? loaded
+        : [video, ...loaded]
+      handleOpenPlayer(video, initial)
+
+      const directoryId = Number(video.directory_id) || state.otherDirectoryId
+      if (!directoryId) return
+      fetchOtherContents({
+        directoryId,
+        path: folderPath,
+        limit: 500,
+        offset: 0,
+        sort,
+        seed,
+      })
+        .then((resp) => {
+          const items = resp.items || []
+          if (items.length) setPlayerPlaylist(items)
+        })
+        .catch((err) => {
+          console.warn(zh('加载同文件夹视频失败', 'Failed to load folder playlist'), err)
+        })
+    },
+    [handleOpenPlayer]
+  )
+
+  const handleSelectPlayerVideo = useCallback((next) => {
+    if (!next) return
+    setPlayerStartTime(0)
+    setPlayerVideo(next)
+  }, [])
 
   const handleOpenAlternatePlayer = useCallback(
     (video) => {
@@ -1234,6 +1304,24 @@ export default function App() {
         const idSet = new Set(ids)
         return (storeTags || []).filter((t) => idSet.has(t.id)).map((t) => t.name)
       }
+      if (parsed.view === 'other') {
+        const { other } = parsed
+        useStore.setState({
+          viewMode: 'other',
+          javTempSort: '',
+          idolTempSort: '',
+          videoTempSort: '',
+          otherDirectoryId: other.directoryId,
+          otherPath: other.path || '',
+          otherFolders: [],
+          otherItems: [],
+          otherTotal: 0,
+          otherError: null,
+        })
+        setHydrated(true)
+        return
+      }
+
       if (parsed.view === 'jav') {
         const { jav } = parsed
         const current = useStore.getState()
@@ -1376,6 +1464,8 @@ export default function App() {
           seriesFavoriteGroupId,
           studioPage,
           seriesPage,
+          otherDirectoryId,
+          otherPath,
         },
         tagsByName
       ),
@@ -1417,11 +1507,15 @@ export default function App() {
       viewMode,
       javStudioName,
       javSeriesName,
+      otherDirectoryId,
+      otherPath,
     ]
   )
 
   const handleParsedUrlView = useCallback((parsedView) => {
-    useStore.setState({ viewMode: parsedView === 'jav' ? 'jav' : 'video' })
+    useStore.setState({
+      viewMode: parsedView === 'jav' ? 'jav' : parsedView === 'other' ? 'other' : 'video',
+    })
   }, [])
 
   const {
@@ -1761,13 +1855,13 @@ export default function App() {
   }, [mapTagIdsToNames, setSelectedTags, tags])
 
   useEffect(() => {
-    if (hydrated && configLoaded && !isJavMode) {
+    if (hydrated && configLoaded && viewMode === 'video') {
       loadVideos()
     }
   }, [
     configLoaded,
     hydrated,
-    isJavMode,
+    viewMode,
     loadVideos,
     page,
     pageSize,
@@ -1839,6 +1933,24 @@ export default function App() {
     loadJavStudios,
     loadJavSeries,
     configLoaded,
+  ])
+
+  useEffect(() => {
+    if (!hydrated || !configLoaded || !isOtherMode) return
+    loadOtherContents()
+  }, [
+    configLoaded,
+    hydrated,
+    isOtherMode,
+    loadOtherContents,
+    otherDirectoryId,
+    otherPath,
+    searchTerm,
+    selectedTags,
+    sortOrder,
+    videoTempSort,
+    randomMode,
+    randomSeed,
   ])
 
   const forceReloadVideos = useCallback(() => {
@@ -3367,10 +3479,22 @@ export default function App() {
 
   const handleSelectSideTab = (tab) => {
     if (tab === 'video') {
-      if (!isJavMode) return
+      if (viewMode === 'video') return
       saveScrollBeforeUrlStateChange()
       useStore.setState({ viewMode: 'video', javTempSort: '', idolTempSort: '' })
       forceReloadVideos()
+      return
+    }
+    if (tab === 'other') {
+      if (isOtherMode) return
+      saveScrollBeforeUrlStateChange()
+      useStore.getState().resetOtherNav()
+      useStore.setState({
+        viewMode: 'other',
+        javTempSort: '',
+        idolTempSort: '',
+        videoTempSort: '',
+      })
       return
     }
     const nextTab =
@@ -4241,7 +4365,7 @@ export default function App() {
   return (
     <div className="app-shell min-h-screen">
       <SideTabs
-        activeTab={isJavMode ? javTab : 'video'}
+        activeTab={isJavMode ? javTab : isOtherMode ? 'other' : 'video'}
         buildJavPrefixUrl={(item) =>
           buildJavUrl({
             page: 1,
@@ -4263,6 +4387,7 @@ export default function App() {
         canGoBack={browserNavigation.canGoBack}
         canGoForward={browserNavigation.canGoForward}
         isJavMode={isJavMode}
+        isOtherMode={isOtherMode}
         javPrefix={javPrefix}
         onBrowserBack={handleBrowserBack}
         onBrowserForward={handleBrowserForward}
@@ -4274,6 +4399,7 @@ export default function App() {
         onJavPrefixClick={handleSelectJavPrefix}
         onOpenTagModal={handleOpenTagModal}
         onOpenVideoSettings={openVideoSettings}
+        onSelectOther={() => handleSelectSideTab('other')}
         onSelectTab={handleSelectSideTab}
         showDirectorySetupHint={showDirectorySetupHint}
       />
@@ -4538,6 +4664,35 @@ export default function App() {
               hasMore: javWaterfallHasMore,
             }}
           />
+        ) : isOtherMode ? (
+          <OtherView
+            directories={otherDirectories}
+            directoryId={otherDirectoryId}
+            path={otherPath}
+            folders={otherFolders}
+            videos={otherItems}
+            total={otherTotal}
+            loading={otherLoading}
+            loadingMore={otherLoadingMore}
+            error={otherError}
+            selectedVideoIds={selectedVideoIds}
+            toggleSelectVideo={toggleSelectVideo}
+            onSelectDirectory={setOtherDirectoryId}
+            onSelectPath={setOtherPath}
+            onLoadMore={loadMoreOtherContents}
+            searchActive={Boolean(searchTerm)}
+            openPlayer={handleOpenOtherPlayer}
+            openAlternatePlayer={
+              containerMode || alternatePlayer ? handleOpenAlternatePlayer : null
+            }
+            revealFile={containerMode || desktopIntegrationEnabled ? handleRevealVideoFile : null}
+            alternatePlayerLabel={alternatePlayerLabel}
+            setTagPickerFor={openTagEditor}
+            onOpenScreenshots={openVideoScreenshots}
+            onRenameVideo={handleRenameVideo}
+            onDeleteVideo={handleDeleteVideo}
+            onTagClick={handleVideoTagClick}
+          />
         ) : (
           <VideoRoute
             page={page}
@@ -4641,9 +4796,12 @@ export default function App() {
         hotkeys={config?.player_hotkeys}
         showHotkeyHint={configFlag(config?.browser_player_show_hotkey_hint, true)}
         onPlaybackError={showCenterToast}
+        playlist={playerPlaylist}
+        onSelectVideo={handleSelectPlayerVideo}
         onClose={() => {
           setPlayerVideo(null)
           setPlayerStartTime(0)
+          setPlayerPlaylist([])
         }}
       />
 

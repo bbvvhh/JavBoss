@@ -635,7 +635,7 @@ export async function fetchDirectories() {
   return res.json()
 }
 
-export async function createDirectory({ path, kind, connectionId, remotePath }) {
+export async function createDirectory({ path, kind, connectionId, remotePath, mode }) {
   const res = await apiFetch('/directories', {
     method: 'POST',
     headers: jsonHeaders,
@@ -644,11 +644,76 @@ export async function createDirectory({ path, kind, connectionId, remotePath }) 
       kind,
       connection_id: connectionId,
       remote_path: remotePath,
+      mode,
     }),
   })
   if (!res.ok) {
     throw await apiError(res)
   }
+  return res.json()
+}
+
+// 「其它模式」浏览接口：顶层目录 / 分层内容 / 目录内标签。
+
+export async function fetchOtherDirectories() {
+  const res = await apiFetch('/other/directories', { cache: 'no-store' })
+  if (!res.ok) throw await apiError(res)
+  const data = await res.json()
+  return Array.isArray(data?.items) ? data.items : []
+}
+
+export async function fetchOtherContents({
+  directoryId,
+  path = '',
+  limit = 25,
+  offset = 0,
+  search = '',
+  sort = '',
+  tags = [],
+} = {}) {
+  const params = new URLSearchParams()
+  if (directoryId != null && directoryId !== '') params.set('directory_id', String(directoryId))
+  params.set('path', path || '')
+  params.set('limit', String(limit))
+  params.set('offset', String(offset))
+  if (search) params.set('search', search)
+  if (sort) params.set('sort', sort)
+  if (tags.length) params.set('tags', tags.join(','))
+  const res = await apiFetch(`/other/list?${params.toString()}`)
+  if (!res.ok) throw await apiError(res)
+  return res.json()
+}
+
+// 其它模式全文（文件名）搜索：不带 directoryId 时递归搜索所有其它模式目录，
+// 带 directoryId + path 时只在该子树内搜索。
+export async function fetchOtherSearch({
+  search,
+  directoryId = null,
+  path = '',
+  limit = 25,
+  offset = 0,
+  sort = '',
+  seed = null,
+} = {}) {
+  const params = new URLSearchParams()
+  params.set('search', search || '')
+  if (directoryId != null && directoryId !== '') params.set('directory_id', String(directoryId))
+  if (path) params.set('path', path)
+  params.set('limit', String(limit))
+  params.set('offset', String(offset))
+  if (sort) params.set('sort', sort)
+  if (seed != null) params.set('seed', String(seed))
+  const res = await apiFetch(`/other/search?${params.toString()}`)
+  if (!res.ok) throw await apiError(res)
+  return res.json()
+}
+
+export async function fetchOtherTags(directoryId) {
+  const params = new URLSearchParams()
+  if (directoryId != null && directoryId !== '') params.set('directory_id', String(directoryId))
+  const query = params.toString()
+  const res = await apiFetch(`/other/tags${query ? `?${query}` : ''}`)
+  if (!res.ok) throw await apiError(res)
   return res.json()
 }
 

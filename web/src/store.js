@@ -8,6 +8,8 @@ import {
   addTagToVideos,
   removeTagFromVideos,
   fetchDirectories,
+  fetchOtherContents,
+  fetchOtherSearch,
   createDirectory,
   updateDirectory,
   deleteDirectory as deleteDirectoryApi,
@@ -42,6 +44,8 @@ const JAV_IDOL_TAG_MAX_ROWS_DEFAULT = 2
 const JAV_TAG_MAX_ROWS_DEFAULT = 2
 let videoLoadSeq = 0
 let videoLoadMoreSeq = 0
+let otherLoadSeq = 0
+let otherLoadMoreSeq = 0
 let javLoadSeq = 0
 let javLoadMoreSeq = 0
 let idolLoadSeq = 0
@@ -51,6 +55,7 @@ let studioLoadMoreSeq = 0
 let seriesLoadSeq = 0
 let seriesLoadMoreSeq = 0
 let lastVideoFetchKey = null
+let lastOtherFetchKey = null
 let lastJavFetchKey = null
 let lastIdolFetchKey = null
 const lastFavoriteGroupFetchKeys = {}
@@ -66,6 +71,7 @@ const RANDOM_SEED_MAX = 2147483646
 
 const invalidateDirectoryScopedRequests = () => {
   lastVideoFetchKey = null
+  lastOtherFetchKey = null
   lastJavFetchKey = null
   lastIdolFetchKey = null
   lastStudioFetchKey = null
@@ -129,6 +135,21 @@ const videoListRequestKey = (state) => {
     state.randomMode ? state.randomSeed || '' : '',
     (state.selectedTags || []).join(','),
     state.videoHideJav ? 'hide-jav' : 'show-jav',
+  ].join('|')
+}
+
+// 其它模式复用视频模式的搜索/标签/排序状态，TopBar 的筛选控件才能在两种模式下都生效。
+const otherListRequestKey = (state) => {
+  const search = state.searchTerm ? state.searchTerm : ''
+  const effectiveSort = state.videoTempSort || state.sortOrder
+  return [
+    state.otherDirectoryId ?? '',
+    state.otherPath || '',
+    state.pageSize,
+    search,
+    effectiveSort,
+    state.randomMode ? state.randomSeed || '' : '',
+    (state.selectedTags || []).join(','),
   ].join('|')
 }
 
@@ -219,7 +240,7 @@ export const useStore = create((set, get) => ({
   randomSeed: null,
   javRandomMode: false,
   javRandomSeed: null,
-  viewMode: 'video', // video | jav
+  viewMode: 'video', // video | jav | other
   javTab: 'list', // list | idol | studio | series; download is accepted for legacy URLs
   // 「字幕」管理弹窗当前打开的视频。VideoCard 出现在视频列表、JAV 列表、JAV 详情等
   // 多条渲染链里，逐层透传一个新回调不划算，而这个状态也不进 URL。
@@ -234,6 +255,37 @@ export const useStore = create((set, get) => ({
           : [],
     }),
   closeSubtitleManager: () => set({ subtitleManagerVideos: [] }),
+  // 「其它模式」按目录 + 路径前缀分层浏览，导航状态不进 URL 之外的地方。
+  otherDirectoryId: null,
+  otherPath: '',
+  otherFolders: [],
+  otherItems: [],
+  otherTotal: 0,
+  otherLoading: false,
+  otherLoadingMore: false,
+  otherError: null,
+  setOtherDirectoryId: (id) => {
+    const parsed = Number(id)
+    const next = Number.isFinite(parsed) && parsed > 0 ? parsed : null
+    set({ otherDirectoryId: next, otherPath: '', otherFolders: [], otherItems: [], otherTotal: 0 })
+  },
+  setOtherPath: (value) => {
+    const next = String(value || '')
+      .replace(/\\/g, '/')
+      .replace(/^\/+|\/+$/g, '')
+    set({ otherPath: next, otherFolders: [], otherItems: [], otherTotal: 0 })
+  },
+  resetOtherNav: () => {
+    lastOtherFetchKey = null
+    set({
+      otherDirectoryId: null,
+      otherPath: '',
+      otherFolders: [],
+      otherItems: [],
+      otherTotal: 0,
+      otherError: null,
+    })
+  },
   javPage: 1,
   javPageSize: JAV_PAGE_SIZE,
   javGridColumns: JAV_GRID_COLUMNS_AUTO,
@@ -455,7 +507,7 @@ export const useStore = create((set, get) => ({
   clearRandomMode: () => set({ randomMode: false, randomSeed: null }),
   clearJavRandom: () => set({ javTempSort: '', javRandomMode: false, javRandomSeed: null }),
   setViewMode: (mode) => {
-    if (mode !== 'video' && mode !== 'jav') return
+    if (mode !== 'video' && mode !== 'jav' && mode !== 'other') return
     set({
       viewMode: mode,
       ...(mode === 'jav' ? { videoTempSort: '' } : { javTempSort: '', idolTempSort: '' }),
@@ -843,6 +895,130 @@ export const useStore = create((set, get) => ({
     } finally {
       if (loadMoreReqId === videoLoadMoreSeq) {
         set({ videoLoadingMore: false })
+      }
+    }
+  },
+  loadOtherContents: async (options = {}) => {
+    const {
+      otherDirectoryId,
+      otherPath,
+      pageSize,
+      selectedTags,
+      searchTerm,
+      sortOrder,
+      videoTempSort,
+      randomMode,
+      randomSeed,
+    } = get()
+    const search = searchTerm ? searchTerm : ''
+    // 没有选中目录时只有搜索有意义：后端会递归搜索所有其它模式目录。
+    if (!otherDirectoryId && !search) {
+      set({ otherFolders: [], otherItems: [], otherTotal: 0, otherError: null })
+      return
+    }
+    const effectiveSort = videoTempSort || sortOrder
+    const key = otherListRequestKey(get())
+    if (!options.force && key === lastOtherFetchKey) {
+      return
+    }
+    lastOtherFetchKey = key
+    const reqId = (otherLoadSeq += 1)
+    set({ otherLoading: true, otherError: null, otherLoadingMore: false })
+    try {
+      // 有关键词时用搜索接口（递归到子文件夹）；否则按目录 + 路径前缀分层浏览。
+      const resp = search
+        ? await fetchOtherSearch({
+            search,
+            directoryId: otherDirectoryId,
+            path: otherPath,
+            limit: pageSize,
+            offset: 0,
+            sort: randomMode ? 'random' : effectiveSort,
+            seed: randomMode ? randomSeed : null,
+          })
+        : await fetchOtherContents({
+            directoryId: otherDirectoryId,
+            path: otherPath,
+            limit: pageSize,
+            offset: 0,
+            tags: selectedTags,
+            sort: randomMode ? 'random' : effectiveSort,
+            seed: randomMode ? randomSeed : null,
+          })
+      if (reqId !== otherLoadSeq || key !== otherListRequestKey(get())) return
+      set({
+        otherDirectory: resp.directory ?? (search ? get().otherDirectory : null),
+        otherFolders: search ? [] : (resp.folders ?? []),
+        otherItems: resp.items ?? [],
+        otherTotal: resp.total ?? 0,
+      })
+    } catch (e) {
+      if (reqId !== otherLoadSeq || key !== otherListRequestKey(get())) return
+      set({ otherError: getErrorMessage(e) })
+    } finally {
+      if (reqId === otherLoadSeq) {
+        set({ otherLoading: false })
+      }
+    }
+  },
+  loadMoreOtherContents: async () => {
+    const state = get()
+    const search = state.searchTerm ? state.searchTerm : ''
+    if (state.otherLoading || state.otherLoadingMore) return
+    if (!state.otherDirectoryId && !search) return
+    const loaded = Array.isArray(state.otherItems) ? state.otherItems.length : 0
+    const total = state.otherTotal || 0
+    if (total > 0 && loaded >= total) return
+
+    const effectiveSort = state.videoTempSort || state.sortOrder
+    const requestKey = otherListRequestKey(state)
+    const loadReqId = otherLoadSeq
+    const loadMoreReqId = (otherLoadMoreSeq += 1)
+    set({ otherLoadingMore: true, otherError: null })
+    try {
+      const resp = search
+        ? await fetchOtherSearch({
+            search,
+            directoryId: state.otherDirectoryId,
+            path: state.otherPath,
+            limit: state.pageSize,
+            offset: loaded,
+            sort: state.randomMode ? 'random' : effectiveSort,
+            seed: state.randomMode ? state.randomSeed : null,
+          })
+        : await fetchOtherContents({
+            directoryId: state.otherDirectoryId,
+            path: state.otherPath,
+            limit: state.pageSize,
+            offset: loaded,
+            tags: state.selectedTags,
+            sort: state.randomMode ? 'random' : effectiveSort,
+            seed: state.randomMode ? state.randomSeed : null,
+          })
+      if (
+        loadReqId !== otherLoadSeq ||
+        loadMoreReqId !== otherLoadMoreSeq ||
+        requestKey !== otherListRequestKey(get())
+      ) {
+        return
+      }
+      const items = resp.items ?? []
+      set({
+        otherItems: [...(get().otherItems || []), ...items],
+        otherTotal: resp.total ?? total,
+      })
+    } catch (e) {
+      if (
+        loadReqId !== otherLoadSeq ||
+        loadMoreReqId !== otherLoadMoreSeq ||
+        requestKey !== otherListRequestKey(get())
+      ) {
+        return
+      }
+      set({ otherError: getErrorMessage(e) })
+    } finally {
+      if (loadMoreReqId === otherLoadMoreSeq) {
+        set({ otherLoadingMore: false })
       }
     }
   },
@@ -1359,8 +1535,22 @@ export const useStore = create((set, get) => ({
       .filter((d) => d && !d.is_delete)
     const scopeChanged =
       Object.prototype.hasOwnProperty.call(payload || {}, 'enabled') || Boolean(dir?.is_delete)
-    if (scopeChanged) invalidateDirectoryScopedRequests()
-    set({ directories: next, ...(scopeChanged ? directoryScopeResetState() : {}) })
+    const modeChanged = Object.prototype.hasOwnProperty.call(payload || {}, 'mode')
+    if (scopeChanged || modeChanged) invalidateDirectoryScopedRequests()
+    set({
+      directories: next,
+      ...(scopeChanged ? directoryScopeResetState() : {}),
+      ...(modeChanged
+        ? {
+            otherDirectoryId: null,
+            otherPath: '',
+            otherFolders: [],
+            otherItems: [],
+            otherTotal: 0,
+            otherError: null,
+          }
+        : {}),
+    })
     return dir
   },
   deleteDirectory: async (id) => {

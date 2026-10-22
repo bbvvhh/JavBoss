@@ -30,6 +30,15 @@ const DIRECTORY_PROCESS_LAYOUT_PREFIX = 'prefix'
 const DIRECTORY_PROCESS_LAYOUT_CODE = 'code'
 const DIRECTORY_PROCESS_LAYOUT_IDOL = 'idol'
 
+const DIRECTORY_MODE_VIDEO = 'video'
+const DIRECTORY_MODE_OTHER = 'other'
+const normalizeDirectoryMode = (value) =>
+  String(value || '')
+    .trim()
+    .toLowerCase() === DIRECTORY_MODE_OTHER
+    ? DIRECTORY_MODE_OTHER
+    : DIRECTORY_MODE_VIDEO
+
 const directoryProcessOptions = () => [
   {
     mode: DIRECTORY_PROCESS_SIDECAR,
@@ -214,6 +223,7 @@ export default function DirectoryManager({
   const [error, setError] = useState('')
   const [adding, setAdding] = useState(false)
   const [sourceKind, setSourceKind] = useState(DIRECTORY_SOURCE_LOCAL)
+  const [mode, setMode] = useState(DIRECTORY_MODE_VIDEO)
   const [connectionId, setConnectionId] = useState('')
   const [remotePath, setRemotePath] = useState('')
   const [connections, setConnections] = useState([])
@@ -224,6 +234,7 @@ export default function DirectoryManager({
   const [editId, setEditId] = useState(null)
   const [editPath, setEditPath] = useState('')
   const [editKind, setEditKind] = useState(DIRECTORY_SOURCE_LOCAL)
+  const [editMode, setEditMode] = useState(DIRECTORY_MODE_VIDEO)
   const [editConnectionId, setEditConnectionId] = useState('')
   const [editRemotePath, setEditRemotePath] = useState('')
   const [rowErrorId, setRowErrorId] = useState(null)
@@ -276,6 +287,7 @@ export default function DirectoryManager({
       setError('')
       setAdding(false)
       setSourceKind(DIRECTORY_SOURCE_LOCAL)
+      setMode(DIRECTORY_MODE_VIDEO)
       setConnectionId('')
       setRemotePath('')
       setConnectionsOpen(false)
@@ -283,6 +295,7 @@ export default function DirectoryManager({
       setEditId(null)
       setEditPath('')
       setEditKind(DIRECTORY_SOURCE_LOCAL)
+      setEditMode(DIRECTORY_MODE_VIDEO)
       setEditConnectionId('')
       setEditRemotePath('')
       setRowErrorId(null)
@@ -394,23 +407,27 @@ export default function DirectoryManager({
     try {
       await onCreate?.(
         addingRemote
-          ? buildDirectoryPayload(
-              {
-                kind: DIRECTORY_SOURCE_WEBDAV,
-                connectionId,
-                remotePath,
-              },
-              {
-                connection: zh('请选择 WebDAV 连接', 'Choose a WebDAV connection'),
-                remotePath: zh('远程目录路径不能为空', 'Remote directory path cannot be empty'),
-              }
-            )
-          : { path: apiPath(path) }
+          ? {
+              ...buildDirectoryPayload(
+                {
+                  kind: DIRECTORY_SOURCE_WEBDAV,
+                  connectionId,
+                  remotePath,
+                },
+                {
+                  connection: zh('请选择 WebDAV 连接', 'Choose a WebDAV connection'),
+                  remotePath: zh('远程目录路径不能为空', 'Remote directory path cannot be empty'),
+                }
+              ),
+              mode,
+            }
+          : { path: apiPath(path), mode }
       )
       setPath('')
       setRemotePath('')
       setConnectionId('')
       setSourceKind(DIRECTORY_SOURCE_LOCAL)
+      setMode(DIRECTORY_MODE_VIDEO)
       setAdding(false)
     } catch (err) {
       setError(getErrorMessage(err))
@@ -423,6 +440,7 @@ export default function DirectoryManager({
     const kind = directorySourceKind(dir)
     setEditId(dir.id)
     setEditKind(kind)
+    setEditMode(normalizeDirectoryMode(dir.mode))
     setEditConnectionId(kind === DIRECTORY_SOURCE_WEBDAV ? String(dir.connection_id ?? '') : '')
     setEditRemotePath(kind === DIRECTORY_SOURCE_WEBDAV ? String(dir.remote_path || '') : '')
     setEditPath(kind === DIRECTORY_SOURCE_WEBDAV ? '' : displayPath(dir.path))
@@ -434,6 +452,7 @@ export default function DirectoryManager({
     setEditId(null)
     setEditPath('')
     setEditKind(DIRECTORY_SOURCE_LOCAL)
+    setEditMode(DIRECTORY_MODE_VIDEO)
     setEditConnectionId('')
     setEditRemotePath('')
     setRowErrorId(null)
@@ -456,17 +475,20 @@ export default function DirectoryManager({
         setRowErrorMsg(zh('远程目录路径不能为空', 'Remote directory path cannot be empty'))
         return
       }
-      payload = buildDirectoryPayload(
-        {
-          kind: DIRECTORY_SOURCE_WEBDAV,
-          connectionId: editConnectionId,
-          remotePath: trimmedRemotePath,
-        },
-        {
-          connection: zh('请选择 WebDAV 连接', 'Choose a WebDAV connection'),
-          remotePath: zh('远程目录路径不能为空', 'Remote directory path cannot be empty'),
-        }
-      )
+      payload = {
+        ...buildDirectoryPayload(
+          {
+            kind: DIRECTORY_SOURCE_WEBDAV,
+            connectionId: editConnectionId,
+            remotePath: trimmedRemotePath,
+          },
+          {
+            connection: zh('请选择 WebDAV 连接', 'Choose a WebDAV connection'),
+            remotePath: zh('远程目录路径不能为空', 'Remote directory path cannot be empty'),
+          }
+        ),
+        mode: editMode,
+      }
     } else {
       const trimmed = editPath.trim()
       if (!trimmed) {
@@ -474,7 +496,7 @@ export default function DirectoryManager({
         setRowErrorMsg(zh('路径不能为空', 'Path cannot be empty'))
         return
       }
-      payload = { path: apiPath(trimmed) }
+      payload = { path: apiPath(trimmed), mode: editMode }
     }
     setSavingId(editId)
     setRowErrorId(null)
@@ -483,6 +505,7 @@ export default function DirectoryManager({
       const original = directories.find((directory) => directory.id === editId)
       const unchanged =
         original != null &&
+        payload.mode === normalizeDirectoryMode(original.mode) &&
         (payload.kind === DIRECTORY_SOURCE_WEBDAV
           ? directorySourceKind(original) === DIRECTORY_SOURCE_WEBDAV &&
             Number(original.connection_id) === payload.connection_id &&
@@ -523,6 +546,34 @@ export default function DirectoryManager({
             value={option.kind}
             checked={value === option.kind}
             onChange={() => onChange(option.kind)}
+            disabled={disabled}
+          />
+          {option.label}
+        </label>
+      ))}
+    </div>
+  )
+
+  const renderModeSwitch = (value, onChange, name, disabled = false) => (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      {[
+        { mode: DIRECTORY_MODE_VIDEO, label: zh('视频模式', 'Video mode') },
+        { mode: DIRECTORY_MODE_OTHER, label: zh('其它模式', 'Other mode') },
+      ].map((option) => (
+        <label
+          key={option.mode}
+          className={`flex cursor-pointer items-center gap-2 rounded border px-3 py-1.5 ${
+            value === option.mode
+              ? 'border-blue-400 bg-blue-50 text-blue-800'
+              : 'text-zinc-600 hover:bg-zinc-50'
+          }`}
+        >
+          <input
+            type="radio"
+            name={name}
+            value={option.mode}
+            checked={value === option.mode}
+            onChange={() => onChange(option.mode)}
             disabled={disabled}
           />
           {option.label}
@@ -794,6 +845,16 @@ export default function DirectoryManager({
                         `directory-source-edit-${d.id}`,
                         working
                       )}
+                      {renderModeSwitch(
+                        editMode,
+                        (nextMode) => {
+                          setEditMode(nextMode)
+                          setRowErrorId(null)
+                          setRowErrorMsg('')
+                        },
+                        `directory-mode-edit-${d.id}`,
+                        working
+                      )}
                       {editingRemote ? (
                         renderRemoteSourceFields({
                           selectId: `directory-connection-edit-${d.id}`,
@@ -863,12 +924,14 @@ export default function DirectoryManager({
                             {Number(d.scanned_video_count) || 0}
                           </strong>
                         </span>
-                        <span className="pl-3">
-                          {zh('已刮削视频', 'Scraped videos')}{' '}
-                          <strong className="font-semibold tabular-nums text-zinc-800">
-                            {Number(d.scraped_video_count) || 0}
-                          </strong>
-                        </span>
+                        {normalizeDirectoryMode(d.mode) !== DIRECTORY_MODE_OTHER ? (
+                          <span className="pl-3">
+                            {zh('已刮削视频', 'Scraped videos')}{' '}
+                            <strong className="font-semibold tabular-nums text-zinc-800">
+                              {Number(d.scraped_video_count) || 0}
+                            </strong>
+                          </span>
+                        ) : null}
                       </div>
                     )}
                     {!isEditing && (
@@ -983,10 +1046,17 @@ export default function DirectoryManager({
                       <>
                         {scanningId !== d.id && status !== 'scanning' && (
                           <DirectoryRowIconButton
-                            label={zh(
-                              '手动扫描（点击立刻进行一次目录扫描和 JAV 刮削）',
-                              'Manual scan (click to immediately scan the directory and scrape JAV metadata)'
-                            )}
+                            label={
+                              normalizeDirectoryMode(d.mode) === DIRECTORY_MODE_OTHER
+                                ? zh(
+                                    '手动扫描（点击立刻进行一次目录扫描）',
+                                    'Manual scan (click to immediately scan the directory)'
+                                  )
+                                : zh(
+                                    '手动扫描（点击立刻进行一次目录扫描和 JAV 刮削）',
+                                    'Manual scan (click to immediately scan the directory and scrape JAV metadata)'
+                                  )
+                            }
                             onClick={() => handleScan(d)}
                             disabled={d.is_delete || working}
                           >
@@ -1078,6 +1148,15 @@ export default function DirectoryManager({
             'directory-source-add',
             submitting
           )}
+          {renderModeSwitch(
+            mode,
+            (nextMode) => {
+              setMode(nextMode)
+              setError('')
+            },
+            'directory-mode-add',
+            submitting
+          )}
           {addingRemote ? (
             renderRemoteSourceFields({
               selectId: 'directory-connection-add',
@@ -1129,6 +1208,7 @@ export default function DirectoryManager({
                 setRemotePath('')
                 setConnectionId('')
                 setSourceKind(DIRECTORY_SOURCE_LOCAL)
+                setMode(DIRECTORY_MODE_VIDEO)
                 setError('')
               }}
               className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50"

@@ -5,6 +5,7 @@ import CollectionsBookmarkOutlinedIcon from '@mui/icons-material/CollectionsBook
 import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined'
 import DisplaySettingsOutlinedIcon from '@mui/icons-material/DisplaySettingsOutlined'
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined'
+import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import LocalOfferOutlinedIcon from '@mui/icons-material/LocalOfferOutlined'
 import MovieCreationOutlinedIcon from '@mui/icons-material/MovieCreationOutlined'
 import NumbersRoundedIcon from '@mui/icons-material/NumbersRounded'
@@ -19,6 +20,7 @@ import { zh } from '@/utils/i18n'
 
 const tabs = [
   { id: 'video', label: zh('视频', 'Video'), icon: VideoLibraryOutlinedIcon },
+  { id: 'other', label: zh('其它模式', 'Other'), icon: FolderOutlinedIcon },
   { id: 'list', label: 'JAV', icon: MovieCreationOutlinedIcon },
   { id: 'idol', label: zh('女优', 'Idols'), icon: PeopleAltOutlinedIcon },
   { id: 'studio', label: zh('片商', 'Studios'), icon: VideocamOutlinedIcon },
@@ -58,6 +60,7 @@ export default function SideTabs({
   canGoBack,
   canGoForward,
   isJavMode,
+  isOtherMode = false,
   javPrefix = '',
   buildJavPrefixUrl,
   onBrowserBack,
@@ -70,6 +73,7 @@ export default function SideTabs({
   onJavPrefixClick,
   onOpenTagModal,
   onOpenVideoSettings,
+  onSelectOther,
   onSelectTab,
   showDirectorySetupHint = false,
 }) {
@@ -126,7 +130,7 @@ export default function SideTabs({
             active={activeTab === tab.id}
             icon={tab.icon}
             label={tab.label}
-            onClick={() => onSelectTab?.(tab.id)}
+            onClick={() => (tab.id === 'other' ? onSelectOther?.() : onSelectTab?.(tab.id))}
           />
         ))}
         <div className="side-tabs__nav-tools">
@@ -137,11 +141,13 @@ export default function SideTabs({
             label={zh('标签', 'Tags')}
             onClick={isJavMode ? onOpenJavTagModal : onOpenTagModal}
           />
-          <RailButton
-            icon={NumbersRoundedIcon}
-            label={zh('番号', 'JAV codes')}
-            onClick={() => setPrefixModalOpen(true)}
-          />
+          {!isOtherMode ? (
+            <RailButton
+              icon={NumbersRoundedIcon}
+              label={zh('番号', 'JAV codes')}
+              onClick={() => setPrefixModalOpen(true)}
+            />
+          ) : null}
           <RailButton
             icon={DisplaySettingsOutlinedIcon}
             label={zh('显示', 'Display')}

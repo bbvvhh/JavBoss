@@ -18,6 +18,15 @@ import { parsePlayerHotkeys } from '@/utils/playerHotkeys'
 import { zh } from '@/utils/i18n'
 import { getErrorMessage } from '@/utils/errors'
 
+const normalizeInitialViewMode = (value) => {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+  if (normalized === 'jav') return 'jav'
+  if (normalized === 'other') return 'other'
+  return 'video'
+}
+
 const SETTINGS_SECTIONS = [
   {
     id: 'directories',
@@ -399,7 +408,7 @@ export default function GlobalSettingsModal({
   }
 
   const handleSaveInitialViewMode = async () => {
-    const next = initialViewModeInput === 'jav' ? 'jav' : 'video'
+    const next = normalizeInitialViewMode(initialViewModeInput)
     setInitialViewModeError('')
     setSavingInitialViewMode(true)
     try {
@@ -734,7 +743,7 @@ export default function GlobalSettingsModal({
   }
 
   const renderDisplayPanel = () => {
-    const currentInitialViewMode = initialViewMode === 'jav' ? 'jav' : 'video'
+    const currentInitialViewMode = normalizeInitialViewMode(initialViewMode)
     const initialViewModeUnchanged = initialViewModeInput === currentInitialViewMode
 
     const defaultRandomUnchanged = defaultRandomInput === (defaultRandomEnabled === true)
@@ -763,13 +772,14 @@ export default function GlobalSettingsModal({
                 <select
                   value={initialViewModeInput}
                   onChange={(event) => {
-                    setInitialViewModeInput(event.target.value === 'jav' ? 'jav' : 'video')
+                    setInitialViewModeInput(normalizeInitialViewMode(event.target.value))
                     setInitialViewModeError('')
                   }}
                   className="w-auto appearance-none rounded-xl border border-zinc-200 bg-white py-1.5 pl-3 pr-7 text-sm text-zinc-800 outline-none focus:border-zinc-200 focus:outline-none focus:ring-0 focus-visible:outline-none"
                 >
                   <option value="video">{zh('视频模式', 'Video Mode')}</option>
                   <option value="jav">{zh('JAV模式', 'JAV Mode')}</option>
+                  <option value="other">{zh('其它模式', 'Other Mode')}</option>
                 </select>
                 <span
                   aria-hidden="true"
